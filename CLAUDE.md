@@ -25,9 +25,15 @@ The app follows a three-panel layout (see reference screenshot):
 - **UI**: React, Tailwind CSS, shadcn/ui components
 - **Canvas/Editor**: Fabric.js for template editing and photo overlay on canvas
 - **PDF**: pdf-lib for reading template PDFs and generating print-ready output
-- **Backend/Database**: Supabase (hosted PostgreSQL, auth, storage, real-time)
-- **DB Client**: @supabase/supabase-js (use Supabase client directly, no ORM)
-- **File Storage**: Supabase Storage buckets for templates and photos
+- **Database**: SQL Server via **Prisma** (`src/lib/db.ts`). JSON columns
+  (placeholders, metadata, render_state) are stored as NVARCHAR(MAX) strings and
+  parsed at the boundary by the mappers in `db.ts`.
+- **Auth**: **Auth.js v5** (NextAuth) Credentials provider — local password
+  (bcrypt) or external evesms API. Config split: `src/auth.config.ts` (edge,
+  middleware) + `src/auth.ts` (Node, providers). Helpers in `src/lib/auth.ts`.
+- **File Storage**: **Azure Blob Storage** (private containers `templates`,
+  `photos`); reads via short-lived SAS URLs minted by `/api/storage/url`
+  (`src/lib/storage.ts` server, `src/lib/storage-client.ts` client).
 
 ## Project Structure
 
@@ -63,11 +69,11 @@ npm run build
 # Run production server
 npm start
 
-# Supabase
-npx supabase init            # Initialize Supabase config (first time)
-npx supabase start           # Start local Supabase (Docker required)
-npx supabase db push         # Push migrations to remote
-npx supabase gen types typescript --linked > src/lib/supabase/types.ts  # Generate TS types from schema
+# Database (Prisma + SQL Server)
+npx prisma db push           # Sync schema to the database (no migration history)
+npx prisma migrate dev       # Create + apply a migration in dev
+npx prisma generate          # Regenerate the typed client (also runs on build/install)
+npx prisma studio            # Browse data
 
 # Linting and formatting
 npm run lint                 # ESLint
@@ -106,17 +112,58 @@ Templates are PDF or image files uploaded per organization. Each template define
 - **Person**: Individual with name, photo, role, organization membership
 - **IDCard**: Generated card instance linking a person to a template with render state
 
-### Supabase Setup
-- **Auth**: Supabase Auth for user login (email/password or OAuth)
-- **Storage buckets**: `templates` (org ID card backgrounds), `photos` (person headshots)
-- **Row Level Security (RLS)**: Enforce per-organization data isolation — users only access their own org's data
-- **Environment variables**: `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local`
-- **Server-side client**: Use `createServerClient` from `@supabase/ssr` in Server Components and Route Handlers
-- **Browser client**: Use `createBrowserClient` from `@supabase/ssr` in Client Components
-- **Type safety**: Regenerate `types.ts` after any schema change with `supabase gen types`
+### Backend Setup (SQL Server + Auth.js + Azure Blob)
+- **Schema**: `prisma/schema.prisma`. After changes: `npx prisma db push` (or
+  `prisma migrate dev`) then `npx prisma generate`. Domain types live in
+  `src/lib/types.ts` (stable contract); Prisma rows are mapped to them in `db.ts`.
+- **Org isolation**: No RLS. Every API route calls `requireUser()` and filters by
+  `user.orgId`; mutations verify org ownership before writing (defense-in-depth).
+- **Auth**: `requireUser()` for API routes (identity), `getCurrentUser()` for
+  server components, `getExternalCreds(request)` to read the evesms bearer
+  token/schoolId from the JWT. Client: `signIn`/`signOut` from `next-auth/react`.
+- **Storage**: upload via `POST /api/upload` (`uploadFile`); resolve a stored
+  path to a viewable URL via `getStorageUrl(bucket, path)` (client) which hits
+  `/api/storage/url` and returns a short-lived SAS URL.
+- **Environment variables**: `DATABASE_URL`, `AUTH_SECRET`,
+  `AZURE_STORAGE_CONNECTION_STRING`, container names (see `.env.example`).
+- **Migration runbook**: see `MIGRATION.md`.
 
 ### Canvas Editor
 - Built on Fabric.js for drag-and-drop positioning of elements on the template
 - Photo cropping/resizing within the placeholder boundary
 - Text fields auto-sized to fit designated areas
 - WYSIWYG preview matches final print output
+
+## Security Audit (2026-03-14)
+
+Known vulnerabilities to fix when modifying related code. **Do not introduce new instances of these patterns.**
+
+### CRITICAL
+1. **No Supabase auth on external API routes** — `/api/persons`, `/api/persons/[id]/photo` only check cookie tokens, not Supabase session. Every API route that returns data MUST call `supabase.auth.getUser()` and reject if no user.
+2. **Unrestricted file upload** — `src/app/api/upload/route.ts` has no extension whitelist, file size limit, or server-side MIME validation. Uploads MUST be restricted to `['jpg','jpeg','png','gif','webp','pdf']` with a max size.
+3. **Password in login response** — `src/app/api/auth/login/route.ts` returns plaintext Supabase password in JSON. Never return passwords in API responses.
+4. **Weak password generation** — `ext_{userId}_{password}` pattern is predictable. Use crypto-random passwords.
+
+### HIGH
+5. **No auth on GET `/api/id-cards` and `/api/templates`** — Both return all data without authentication.
+6. **No auth/rate-limit on `/api/remove-bg`** — Anyone can call this and burn PiAPI credits.
+7. **IDOR on CRUD endpoints** — PUT/DELETE on persons and templates lack org ownership checks, relying solely on RLS.
+8. **XSS via `dangerouslySetInnerHTML`** — `template-editor.tsx` renders placeholder labels as raw HTML. Sanitize with DOMPurify or use text rendering.
+9. **HTML injection in canvas** — `addHtmlLabel()` in `canvas.ts` injects unsanitized text into SVG foreignObject. Sanitize all inputs.
+10. **Public storage policies** — `supabase/migrations/00002_storage_policies.sql` allows unauthenticated read on templates and photos buckets.
+
+### MEDIUM
+11. **Middleware skips `/api/` routes** — `src/lib/supabase/middleware.ts` exempts all API routes from auth redirect.
+12. **No input validation on PUT bodies** — API routes spread unvalidated JSON into DB updates. Use Zod schemas.
+13. **Open redirect in OAuth callback** — `next` query param in `/auth/callback` is unvalidated.
+14. **Wildcard image remote patterns** — `next.config.ts` allows `hostname: "**"`. Restrict to known domains.
+15. **No security headers** — No CSP, X-Frame-Options, HSTS, or X-Content-Type-Options configured.
+
+### Rules for new code
+- Every API route MUST verify authentication before processing
+- Every CRUD operation MUST verify org ownership (defense-in-depth, don't rely solely on RLS)
+- All user input MUST be validated with Zod before DB operations
+- Never use `dangerouslySetInnerHTML` with user-provided content
+- Never return secrets/passwords in API responses
+- File uploads MUST validate extension, MIME type, and enforce size limits
+- Restrict `next.config.ts` image remote patterns to specific domains

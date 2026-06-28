@@ -1,0 +1,158 @@
+// Printify data model — SQL Server (migrated off Supabase/Postgres).
+//
+// Notes for this provider:
+// - SQL Server has no native JSON type in Prisma. The former Postgres `jsonb`
+//   columns (placeholders, metadata, render_state) are stored as NVARCHAR(MAX)
+//   holding a JSON string; serialize/parse at the application boundary.
+// - UUID primary keys are stored as strings (NVARCHAR(36)) and generated in the
+//   app via Prisma's uuid() to match the existing string-typed code and to make
+//   the one-time data import from Supabase a straight copy.
+// - Scalar fields are intentionally named in snake_case to match the existing
+//   application code (which reads e.g. person.first_name). Column names already
+//   match, so no @map is needed on scalars; only relation fields use camelCase.
+// - Row Level Security is gone; per-organization isolation is enforced in app code.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+// Replaces Supabase auth.users. Holds both locally-registered users
+// (password_hash set) and external-API users (external_user_id set).
+model User {
+  id                String   @id @default(uuid()) @db.NVarChar(36)
+  email             String   @unique @db.NVarChar(320)
+  password_hash     String?  @db.NVarChar(255)
+  external_user_id  String?  @db.NVarChar(64)
+  external_username String?  @db.NVarChar(255)
+  created_at        DateTime @default(now())
+  updated_at        DateTime @default(now()) @updatedAt
+
+  profile Profile?
+
+  @@map("users")
+}
+
+model Organization {
+  id         String   @id @default(uuid()) @db.NVarChar(36)
+  name       String   @db.NVarChar(255)
+  slug       String   @unique @db.NVarChar(255)
+  logo_url   String?  @db.NVarChar(1024)
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
+
+  profiles  Profile[]
+  templates Template[]
+  persons   Person[]
+  idCards   IdCard[]
+  printLogs PrintLog[]
+
+  @@map("organizations")
+}
+
+model Profile {
+  id              String   @id @db.NVarChar(36)
+  organization_id String?  @db.NVarChar(36)
+  full_name       String?  @db.NVarChar(255)
+  role            String   @default("member") @db.NVarChar(20)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @default(now()) @updatedAt
+
+  user         User          @relation(fields: [id], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organization_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organization_id])
+  @@map("profiles")
+}
+
+model Template {
+  id              String   @id @default(uuid()) @db.NVarChar(36)
+  organization_id String   @db.NVarChar(36)
+  name            String   @db.NVarChar(255)
+  description     String?  @db.NVarChar(Max)
+  file_path       String   @db.NVarChar(1024)
+  file_type       String   @db.NVarChar(10)
+  width_inches    Float    @default(3.375)
+  height_inches   Float    @default(2.125)
+  placeholders    String   @default("[]") @db.NVarChar(Max) // JSON array
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @default(now()) @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  idCards      IdCard[]
+
+  @@index([organization_id])
+  @@map("templates")
+}
+
+model Person {
+  id              String   @id @default(uuid()) @db.NVarChar(36)
+  organization_id String   @db.NVarChar(36)
+  first_name      String   @db.NVarChar(255)
+  last_name       String   @db.NVarChar(255)
+  middle_name     String?  @db.NVarChar(255)
+  photo_path      String?  @db.NVarChar(1024)
+  person_type     String   @default("student") @db.NVarChar(20)
+  category        String?  @db.NVarChar(255)
+  id_number       String?  @db.NVarChar(255)
+  email           String?  @db.NVarChar(320)
+  phone           String?  @db.NVarChar(64)
+  metadata        String   @default("{}") @db.NVarChar(Max) // JSON object
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @default(now()) @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  idCards      IdCard[]
+
+  @@index([organization_id])
+  @@index([person_type])
+  @@index([last_name, first_name])
+  @@map("persons")
+}
+
+model IdCard {
+  id                String    @id @default(uuid()) @db.NVarChar(36)
+  organization_id   String    @db.NVarChar(36)
+  person_id         String    @db.NVarChar(36)
+  template_id       String    @db.NVarChar(36)
+  render_state      String?   @db.NVarChar(Max) // JSON object
+  exported_pdf_path String?   @db.NVarChar(1024)
+  status            String    @default("draft") @db.NVarChar(20)
+  valid_from        DateTime? @db.Date
+  valid_until       DateTime? @db.Date
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @default(now()) @updatedAt
+
+  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  person       Person       @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  template     Template     @relation(fields: [template_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organization_id])
+  @@index([person_id])
+  @@index([template_id])
+  @@map("id_cards")
+}
+
+// Persons originate from an external API, so logs reference them by text id.
+model PrintLog {
+  id                 String   @id @default(uuid()) @db.NVarChar(36)
+  organization_id    String?  @db.NVarChar(36)
+  person_external_id String   @db.NVarChar(255)
+  person_name        String   @db.NVarChar(512)
+  template_id        String?  @db.NVarChar(36)
+  template_name      String?  @db.NVarChar(255)
+  action             String   @db.NVarChar(20)
+  created_at         DateTime @default(now())
+
+  organization Organization? @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([created_at(sort: Desc)])
+  @@map("print_logs")
+}
