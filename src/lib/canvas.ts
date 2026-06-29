@@ -79,10 +79,13 @@ export async function addPersonPhoto(
 
   if (signal?.aborted) return null
 
-  // Scale to cover the placeholder area
+  // Scale to FIT inside the placeholder (contain): the whole photo is shown,
+  // scaled so it fits within the box without cropping. Use Math.min so the
+  // larger dimension determines the scale; differing aspect ratios leave the
+  // template visible around the photo rather than cropping it.
   const scaleX = pw / (img.width ?? 1)
   const scaleY = ph / (img.height ?? 1)
-  const scale = Math.max(scaleX, scaleY)
+  const scale = Math.min(scaleX, scaleY)
 
   // Center the image within the placeholder
   const scaledW = (img.width ?? 1) * scale
