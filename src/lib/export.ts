@@ -14,9 +14,32 @@ export async function exportSingleCard(
   triggerDownload(pdfBytes, `${personName}-id-card.pdf`)
 }
 
-export function printSingleCard(canvas: Canvas, backDataUrl?: string, mode: "card" | "sheet" = "card") {
-  const dataUrl = exportCanvasToDataUrl(canvas, "png", 1.0, 2)
-  printImages([dataUrl], backDataUrl ? [backDataUrl] : undefined, mode)
+// Print rasters are kept lighter than PDF exports: the 1200px canvas at 1x is
+// ~355 DPI on a CR-80 card (card printers are 300 DPI) — sharp enough, but small
+// enough that the PDF stays lightweight to open and print.
+const PRINT_MULTIPLIER = 1
+
+// Open a print-ready PDF in a new browser tab instead of calling window.print()
+// directly. window.print() is synchronous and blocks the tab until the OS print
+// dialog resolves; if the default printer (e.g. a Magicard Enduro) is offline,
+// that dialog stalls and the whole app appears frozen. Opening a PDF decouples us
+// from printer state — the user prints from the PDF viewer whenever the printer
+// is ready, and the app never hangs.
+function openPdfInNewTab(pdfBytes: Uint8Array, filename: string) {
+  const blob = new Blob([pdfBytes as BlobPart], { type: "application/pdf" })
+  const url = URL.createObjectURL(blob)
+  const win = window.open(url, "_blank")
+  if (!win) {
+    // Popup blocked — fall back to a download so the file isn't lost.
+    triggerDownload(pdfBytes, filename)
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+export async function printSingleCard(canvas: Canvas, backDataUrl?: string) {
+  const dataUrl = exportCanvasToDataUrl(canvas, "png", 1.0, PRINT_MULTIPLIER)
+  const pdfBytes = await generateSingleCardPdf(dataUrl, backDataUrl)
+  openPdfInNewTab(pdfBytes, "id-card-print.pdf")
 }
 
 export async function printBatchCards(
@@ -27,8 +50,7 @@ export async function printBatchCards(
   getTemplateImageUrl: (t: Template) => Promise<string> | string,
   onProgress?: (current: number, total: number) => void,
   options?: { removeBg?: boolean; signal?: AbortSignal },
-  backTemplate?: Template | null,
-  mode: "card" | "sheet" = "card"
+  backTemplate?: Template | null
 ): Promise<void> {
   // Pre-process all backgrounds in parallel before rendering
   if (options?.removeBg) {
@@ -54,185 +76,26 @@ export async function printBatchCards(
     // Render front
     await renderPersonOnTemplate(canvas, template, person, templateImageUrl, photoUrl, { removeBg: options?.removeBg })
     await new Promise((r) => setTimeout(r, 50))
-    frontDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, 2))
+    frontDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, PRINT_MULTIPLIER))
 
     // Render back (if duplex)
     if (backTemplate && backTemplateImageUrl) {
       await renderPersonOnTemplate(canvas, backTemplate, person, backTemplateImageUrl, photoUrl, { removeBg: options?.removeBg })
       await new Promise((r) => setTimeout(r, 50))
-      backDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, 2))
+      backDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, PRINT_MULTIPLIER))
     }
   }
 
   if (!options?.signal?.aborted) {
-    printImages(frontDataUrls, backDataUrls.length > 0 ? backDataUrls : undefined, mode)
+    // One card per page at exact CR-80 size (duplex interleaves front/back) —
+    // the right layout for a card printer like the Enduro.
+    const pdfBytes = await generateBatchPdf(
+      frontDataUrls,
+      { pageSize: "card" },
+      backDataUrls.length > 0 ? backDataUrls : undefined
+    )
+    openPdfInNewTab(pdfBytes, "id-cards-print.pdf")
   }
-}
-
-// Print mode: "card" = one card per page for CR-80 card printers (e.g. Magicard Enduro 3E)
-//             "sheet" = grid layout on Letter paper with cut marks
-// For duplex card mode: front page then back page per card, interleaved
-// For duplex sheet mode: front sheet then back sheet (mirrored columns for flip alignment)
-function printImages(frontDataUrls: string[], backDataUrls?: string[], mode: "card" | "sheet" = "card") {
-  const duplex = backDataUrls && backDataUrls.length > 0
-
-  const iframe = document.createElement("iframe")
-  iframe.style.position = "fixed"
-  iframe.style.top = "-10000px"
-  iframe.style.left = "-10000px"
-  iframe.style.width = "0"
-  iframe.style.height = "0"
-  document.body.appendChild(iframe)
-
-  const doc = iframe.contentDocument ?? iframe.contentWindow?.document
-  if (!doc) return
-
-  const pages: string[] = []
-
-  if (mode === "card") {
-    // One card per page — interleave front/back for duplex
-    for (let i = 0; i < frontDataUrls.length; i++) {
-      pages.push(`<div class="page"><img src="${frontDataUrls[i]}" /></div>`)
-      if (duplex && i < backDataUrls.length) {
-        pages.push(`<div class="page"><img src="${backDataUrls[i]}" /></div>`)
-      }
-    }
-  } else {
-    // Grid layout for letter paper
-    const COLS = 2
-    const ROWS = 4
-    const CARDS_PER_PAGE = COLS * ROWS
-    for (let i = 0; i < frontDataUrls.length; i += CARDS_PER_PAGE) {
-      const frontBatch = frontDataUrls.slice(i, i + CARDS_PER_PAGE)
-      const frontCards = frontBatch.map((url) => `<div class="card"><img src="${url}" /></div>`).join("")
-      pages.push(`<div class="page"><div class="grid">${frontCards}</div></div>`)
-
-      if (duplex) {
-        const backBatch = backDataUrls.slice(i, i + CARDS_PER_PAGE)
-        const backGrid: string[] = []
-        for (let j = 0; j < CARDS_PER_PAGE; j++) {
-          const row = Math.floor(j / COLS)
-          const col = j % COLS
-          const mirroredCol = (COLS - 1) - col
-          const srcIdx = row * COLS + mirroredCol
-          if (srcIdx < backBatch.length) {
-            backGrid[j] = `<div class="card"><img src="${backBatch[srcIdx]}" /></div>`
-          } else {
-            backGrid[j] = `<div class="card"></div>`
-          }
-        }
-        pages.push(`<div class="page"><div class="grid">${backGrid.join("")}</div></div>`)
-      }
-    }
-  }
-
-  const CARD_W = "3.375in"
-  const CARD_H = "2.125in"
-
-  const cardStyles = `
-  @page {
-    size: 2.125in 3.375in;
-    margin: 0;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: white; }
-  .page {
-    page-break-after: always;
-    width: 2.125in;
-    height: 3.375in;
-    overflow: hidden;
-  }
-  .page:last-child { page-break-after: auto; }
-  .page img {
-    width: 100%;
-    height: 100%;
-    object-fit: fill;
-    display: block;
-  }`
-
-  const sheetStyles = `
-  @page {
-    size: letter;
-    margin: 0.5in 0.375in;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: white; }
-  .page {
-    page-break-after: always;
-    width: 100%;
-    display: flex;
-    justify-content: center;
-  }
-  .page:last-child { page-break-after: auto; }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(2, ${CARD_W});
-    grid-template-rows: repeat(4, ${CARD_H});
-    gap: 0.25in;
-  }
-  .card {
-    width: ${CARD_W};
-    height: ${CARD_H};
-    position: relative;
-    overflow: hidden;
-  }
-  .card img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-  }
-  .card::before, .card::after {
-    content: '';
-    position: absolute;
-    border: 0;
-  }
-  .card::before {
-    top: -4px; left: -4px;
-    width: 8px; height: 8px;
-    border-top: 0.5px solid #999;
-    border-left: 0.5px solid #999;
-  }
-  .card::after {
-    top: -4px; right: -4px;
-    width: 8px; height: 8px;
-    border-top: 0.5px solid #999;
-    border-right: 0.5px solid #999;
-  }`
-
-  doc.open()
-  doc.write(`<!DOCTYPE html>
-<html>
-<head>
-<style>${mode === "card" ? cardStyles : sheetStyles}</style>
-</head>
-<body>${pages.join("")}</body>
-</html>`)
-  doc.close()
-
-  // Wait for images to load then print
-  const imgs = doc.querySelectorAll("img")
-  let loaded = 0
-  const total = imgs.length
-  const onAllLoaded = () => {
-    iframe.contentWindow?.focus()
-    iframe.contentWindow?.print()
-    setTimeout(() => document.body.removeChild(iframe), 1000)
-  }
-
-  if (total === 0) {
-    onAllLoaded()
-    return
-  }
-
-  imgs.forEach((img) => {
-    if (img.complete) {
-      loaded++
-      if (loaded === total) onAllLoaded()
-    } else {
-      img.onload = () => { loaded++; if (loaded === total) onAllLoaded() }
-      img.onerror = () => { loaded++; if (loaded === total) onAllLoaded() }
-    }
-  })
 }
 
 export async function exportBatchCards(
