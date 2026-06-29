@@ -150,9 +150,9 @@ export function GeneratorPageClient() {
         const frontImgUrl = await getTemplateImageUrl(template)
         await renderPersonOnTemplate(canvas, template, person, frontImgUrl, photoUrl, { removeBg: true })
       }
-      await printSingleCard(canvas, backDataUrl)
+      printSingleCard(canvas, backDataUrl)
       await recordCards([person], template, "printed")
-      toast.success("Print PDF opened in a new tab", { description: "Print it from there when your printer is ready" })
+      toast.success("Print dialog opened")
     } catch (err) {
       toast.error("Print failed")
       console.error(err)
@@ -186,7 +186,7 @@ export function GeneratorPageClient() {
       )
       if (!signal?.aborted) {
         await recordCards(selected, template, "printed")
-        toast.success("Print PDF opened in a new tab", { description: `${selected.length} card${selected.length === 1 ? "" : "s"} · print it when your printer is ready` })
+        toast.success("Print dialog opened", { description: `${selected.length} card${selected.length === 1 ? "" : "s"}` })
       }
     } catch (err) {
       if (!signal?.aborted) {

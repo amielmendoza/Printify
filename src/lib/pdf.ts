@@ -32,6 +32,16 @@ function dataUrlToBytes(dataUrl: string): Uint8Array {
   return bytes
 }
 
+// Embed a data-URL image, picking JPEG vs PNG by its MIME type. JPEG keeps the
+// PDF small (important for the print path — large PDFs make the browser's PDF
+// print pipeline hang); PNG is used where lossless/transparency is needed.
+function embedImage(doc: PDFDocument, dataUrl: string) {
+  const bytes = dataUrlToBytes(dataUrl)
+  return dataUrl.startsWith("data:image/jpeg") || dataUrl.startsWith("data:image/jpg")
+    ? doc.embedJpg(bytes)
+    : doc.embedPng(bytes)
+}
+
 /**
  * Compute card dimensions in points from the image's actual aspect ratio.
  * The longer side is scaled to CR-80's longer dimension (3.375").
@@ -69,8 +79,7 @@ export async function generateSingleCardPdf(
   backDataUrl?: string
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
-  const imageBytes = dataUrlToBytes(canvasDataUrl)
-  const image = await doc.embedPng(imageBytes)
+  const image = await embedImage(doc, canvasDataUrl)
 
   // Always use exact CR-80 page size (3.375" x 2.125") for PVC card printing
   const page = doc.addPage([CR80_WIDTH_PT, CR80_HEIGHT_PT])
@@ -78,8 +87,7 @@ export async function generateSingleCardPdf(
 
   // Duplex: add back side as second page
   if (backDataUrl) {
-    const backBytes = dataUrlToBytes(backDataUrl)
-    const backImage = await doc.embedPng(backBytes)
+    const backImage = await embedImage(doc, backDataUrl)
     const backPage = doc.addPage([CR80_WIDTH_PT, CR80_HEIGHT_PT])
     backPage.drawImage(backImage, { x: 0, y: 0, width: CR80_WIDTH_PT, height: CR80_HEIGHT_PT })
   }
@@ -106,23 +114,20 @@ export async function generateBatchPdf(
   const duplex = backDataUrls && backDataUrls.length > 0
 
   // Embed first image to determine card dimensions from actual aspect ratio
-  const firstImageBytes = dataUrlToBytes(canvasDataUrls[0])
-  const firstImage = await doc.embedPng(firstImageBytes)
+  const firstImage = await embedImage(doc, canvasDataUrls[0])
   const { cardW, cardH } = cardDimensionsFromImage(firstImage.width, firstImage.height)
 
   if (opts.pageSize === "card") {
     // One card per page at exact CR-80 size — for duplex: front, back, front, back …
     for (let i = 0; i < canvasDataUrls.length; i++) {
       // Front page
-      const frontBytes = dataUrlToBytes(canvasDataUrls[i])
-      const frontImage = i === 0 ? firstImage : await doc.embedPng(frontBytes)
+      const frontImage = i === 0 ? firstImage : await embedImage(doc, canvasDataUrls[i])
       const fp = doc.addPage([CR80_WIDTH_PT, CR80_HEIGHT_PT])
       fp.drawImage(frontImage, { x: 0, y: 0, width: CR80_WIDTH_PT, height: CR80_HEIGHT_PT })
 
       // Back page (if duplex)
       if (duplex && backDataUrls[i]) {
-        const backBytes = dataUrlToBytes(backDataUrls[i])
-        const backImage = await doc.embedPng(backBytes)
+        const backImage = await embedImage(doc, backDataUrls[i])
         const bp = doc.addPage([CR80_WIDTH_PT, CR80_HEIGHT_PT])
         bp.drawImage(backImage, { x: 0, y: 0, width: CR80_WIDTH_PT, height: CR80_HEIGHT_PT })
       }
@@ -163,8 +168,7 @@ export async function generateBatchPdf(
         const x = startX + col * (finalCardW + finalSpacing)
         const y = startY - (row + 1) * finalCardH - row * finalSpacing
 
-        const imageBytes = dataUrlToBytes(frontBatch[j])
-        const image = i === 0 && j === 0 ? firstImage : await doc.embedPng(imageBytes)
+        const image = i === 0 && j === 0 ? firstImage : await embedImage(doc, frontBatch[j])
         frontPage.drawImage(image, { x, y, width: finalCardW, height: finalCardH })
 
         if (opts.includeCutMarks) {
@@ -185,8 +189,7 @@ export async function generateBatchPdf(
           const x = startX + mirroredCol * (finalCardW + finalSpacing)
           const y = startY - (row + 1) * finalCardH - row * finalSpacing
 
-          const imageBytes = dataUrlToBytes(backBatch[j])
-          const image = await doc.embedPng(imageBytes)
+          const image = await embedImage(doc, backBatch[j])
           backPage.drawImage(image, { x, y, width: finalCardW, height: finalCardH })
 
           if (opts.includeCutMarks) {

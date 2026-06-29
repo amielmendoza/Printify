@@ -14,32 +14,64 @@ export async function exportSingleCard(
   triggerDownload(pdfBytes, `${personName}-id-card.pdf`)
 }
 
-// Print rasters are kept lighter than PDF exports: the 1200px canvas at 1x is
-// ~355 DPI on a CR-80 card (card printers are 300 DPI) — sharp enough, but small
-// enough that the PDF stays lightweight to open and print.
+// Print raster is kept lighter than PDF exports: the 1200px canvas at 1x is
+// ~355 DPI on a CR-80 card (card printers are 300 DPI) — sharp enough, light enough.
 const PRINT_MULTIPLIER = 1
 
-// Open a print-ready PDF in a new browser tab instead of calling window.print()
-// directly. window.print() is synchronous and blocks the tab until the OS print
-// dialog resolves; if the default printer (e.g. a Magicard Enduro) is offline,
-// that dialog stalls and the whole app appears frozen. Opening a PDF decouples us
-// from printer state — the user prints from the PDF viewer whenever the printer
-// is ready, and the app never hangs.
-function openPdfInNewTab(pdfBytes: Uint8Array, filename: string) {
-  const blob = new Blob([pdfBytes as BlobPart], { type: "application/pdf" })
-  const url = URL.createObjectURL(blob)
-  const win = window.open(url, "_blank")
-  if (!win) {
-    // Popup blocked — fall back to a download so the file isn't lost.
-    triggerDownload(pdfBytes, filename)
+// Show the browser's print dialog directly: render the card image(s) into a
+// hidden iframe (one CR-80 page each, duplex interleaved) and call print(). This
+// opens the print preview immediately on click — no download, no new tab —
+// regardless of the browser's "download PDFs" setting. (If the dialog itself then
+// hangs, that's the printer driver, e.g. a stuck Magicard Enduro — not this code.)
+function printCardImages(frontDataUrls: string[], backDataUrls?: string[]) {
+  const duplex = !!backDataUrls && backDataUrls.length > 0
+
+  const iframe = document.createElement("iframe")
+  iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;"
+  document.body.appendChild(iframe)
+
+  const doc = iframe.contentDocument ?? iframe.contentWindow?.document
+  if (!doc) {
+    iframe.remove()
+    return
   }
-  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+
+  const pages: string[] = []
+  for (let i = 0; i < frontDataUrls.length; i++) {
+    pages.push(`<div class="page"><img src="${frontDataUrls[i]}" /></div>`)
+    if (duplex && i < backDataUrls!.length) {
+      pages.push(`<div class="page"><img src="${backDataUrls![i]}" /></div>`)
+    }
+  }
+
+  doc.open()
+  doc.write(`<!DOCTYPE html><html><head><style>
+    @page { size: 2.125in 3.375in; margin: 0; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    .page { page-break-after: always; width: 2.125in; height: 3.375in; overflow: hidden; }
+    .page:last-child { page-break-after: auto; }
+    .page img { width: 100%; height: 100%; object-fit: fill; display: block; }
+  </style></head><body>${pages.join("")}</body></html>`)
+  doc.close()
+
+  const imgs = Array.from(doc.querySelectorAll("img"))
+  let loaded = 0
+  const fire = () => {
+    iframe.contentWindow?.focus()
+    iframe.contentWindow?.print()
+    setTimeout(() => iframe.remove(), 60_000)
+  }
+  if (imgs.length === 0) return fire()
+  imgs.forEach((img) => {
+    const done = () => { if (++loaded === imgs.length) fire() }
+    if (img.complete) done()
+    else { img.onload = done; img.onerror = done }
+  })
 }
 
-export async function printSingleCard(canvas: Canvas, backDataUrl?: string) {
+export function printSingleCard(canvas: Canvas, backDataUrl?: string) {
   const dataUrl = exportCanvasToDataUrl(canvas, "png", 1.0, PRINT_MULTIPLIER)
-  const pdfBytes = await generateSingleCardPdf(dataUrl, backDataUrl)
-  openPdfInNewTab(pdfBytes, "id-card-print.pdf")
+  printCardImages([dataUrl], backDataUrl ? [backDataUrl] : undefined)
 }
 
 export async function printBatchCards(
@@ -87,14 +119,9 @@ export async function printBatchCards(
   }
 
   if (!options?.signal?.aborted) {
-    // One card per page at exact CR-80 size (duplex interleaves front/back) —
-    // the right layout for a card printer like the Enduro.
-    const pdfBytes = await generateBatchPdf(
-      frontDataUrls,
-      { pageSize: "card" },
-      backDataUrls.length > 0 ? backDataUrls : undefined
-    )
-    openPdfInNewTab(pdfBytes, "id-cards-print.pdf")
+    // One CR-80 card per page (duplex interleaves front/back) — opens the print
+    // dialog directly.
+    printCardImages(frontDataUrls, backDataUrls.length > 0 ? backDataUrls : undefined)
   }
 }
 
