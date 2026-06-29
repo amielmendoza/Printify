@@ -4,20 +4,24 @@ import type { Template, Person, Placeholder } from "@/lib/types"
 import { removeImageBackground } from "@/lib/background-removal"
 
 // Max canvas dimension (longer side) — actual size is determined by template aspect ratio
-export const MAX_CANVAS_DIM = 800
+export const MAX_CANVAS_DIM = 1200
 
 export function createCanvas(
   canvasEl: HTMLCanvasElement,
   width: number = 400,
   height: number = 600
 ): Canvas {
-  return new Canvas(canvasEl, {
+  const canvas = new Canvas(canvasEl, {
     width,
     height,
     backgroundColor: "#ffffff",
     selection: false,          // no multi-select box
     preserveObjectStacking: true,
   })
+  // Prefer quality when scaling raster images (photos) up/down on the canvas.
+  const ctx = canvas.getContext()
+  if (ctx) ctx.imageSmoothingQuality = "high"
+  return canvas
 }
 
 export async function loadTemplateBackground(
@@ -98,6 +102,20 @@ export async function addPersonPhoto(
     lockRotation: true,
     hoverCursor: "grab",
     moveCursor: "grabbing",
+  })
+
+  // Clip the photo to the placeholder rectangle so it always occupies exactly
+  // that box (fill + center-crop), regardless of the source photo's aspect
+  // ratio. Without this, cover-scaling lets larger/differently-shaped photos
+  // overflow the placeholder by varying amounts. absolutePositioned keeps the
+  // clip window fixed in canvas coordinates, so dragging the image repositions
+  // the face within a stable frame.
+  img.clipPath = new Rect({
+    left: px,
+    top: py,
+    width: pw,
+    height: ph,
+    absolutePositioned: true,
   })
 
   canvas.add(img)

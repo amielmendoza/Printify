@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { z } from "zod"
 import { requireUser } from "@/lib/auth"
 import { prisma, mapIdCard, mapPerson, mapTemplate } from "@/lib/db"
-import type { Prisma } from "@prisma/client"
+import { Prisma } from "@prisma/client"
 
 export async function GET(request: NextRequest) {
   const user = await requireUser()
@@ -65,7 +65,10 @@ export async function POST(request: NextRequest) {
     data: {
       ...rest,
       organization_id: user.orgId,
-      render_state: render_state !== undefined ? JSON.stringify(render_state) : null,
+      render_state:
+        render_state === undefined || render_state === null
+          ? Prisma.DbNull
+          : (render_state as Prisma.InputJsonValue),
       valid_from: valid_from ? new Date(valid_from) : null,
       valid_until: valid_until ? new Date(valid_until) : null,
     },

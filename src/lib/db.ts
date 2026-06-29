@@ -40,15 +40,6 @@ const iso = (d: Date | null | undefined): string =>
 const isoOrNull = (d: Date | null | undefined): string | null =>
   d instanceof Date ? d.toISOString() : null
 
-function parseJson(value: string | null | undefined, fallback: Json): Json {
-  if (value == null) return fallback
-  try {
-    return JSON.parse(value) as Json
-  } catch {
-    return fallback
-  }
-}
-
 export function mapOrganization(o: PrismaOrganization): Organization {
   return {
     id: o.id,
@@ -79,9 +70,9 @@ export function mapTemplate(t: PrismaTemplate): Template {
     description: t.description,
     file_path: t.file_path,
     file_type: t.file_type,
-    width_inches: t.width_inches,
-    height_inches: t.height_inches,
-    placeholders: parseJson(t.placeholders, []),
+    width_inches: Number(t.width_inches),
+    height_inches: Number(t.height_inches),
+    placeholders: (t.placeholders ?? []) as Json,
     is_active: t.is_active,
     created_at: iso(t.created_at),
     updated_at: iso(t.updated_at),
@@ -101,7 +92,7 @@ export function mapPerson(p: PrismaPerson): Person {
     id_number: p.id_number,
     email: p.email,
     phone: p.phone,
-    metadata: parseJson(p.metadata, {}),
+    metadata: (p.metadata ?? {}) as Json,
     is_active: p.is_active,
     created_at: iso(p.created_at),
     updated_at: iso(p.updated_at),
@@ -114,7 +105,7 @@ export function mapIdCard(c: PrismaIdCard): IdCard {
     organization_id: c.organization_id,
     person_id: c.person_id,
     template_id: c.template_id,
-    render_state: c.render_state ? parseJson(c.render_state, null) : null,
+    render_state: (c.render_state ?? null) as Json | null,
     exported_pdf_path: c.exported_pdf_path,
     status: c.status,
     valid_from: isoOrNull(c.valid_from),

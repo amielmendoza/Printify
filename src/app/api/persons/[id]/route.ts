@@ -59,7 +59,7 @@ export async function PUT(
 
   const { metadata, ...rest } = parsed.data
   const data: Record<string, unknown> = { ...rest }
-  if (metadata !== undefined) data.metadata = JSON.stringify(metadata)
+  if (metadata !== undefined) data.metadata = metadata
 
   try {
     const updated = await prisma.person.update({ where: { id }, data })

@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       organization_id: user.orgId,
       ...(width_inches !== undefined ? { width_inches } : {}),
       ...(height_inches !== undefined ? { height_inches } : {}),
-      placeholders: JSON.stringify(placeholders ?? []),
+      placeholders: (placeholders ?? []) as Prisma.InputJsonValue,
     },
   })
 

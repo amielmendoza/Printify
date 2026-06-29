@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireUser } from "@/lib/auth"
-import { getSasUrl } from "@/lib/storage"
+import { getSignedUrl } from "@/lib/storage"
 
-// Mints a short-lived read SAS URL for a stored blob. Replaces the previous
-// Supabase getPublicUrl(bucket, path) calls. Requires authentication.
+// Mints a short-lived signed URL for a stored blob in Supabase Storage.
+// Requires authentication.
 export async function GET(request: NextRequest) {
   const user = await requireUser()
   if (!user) {
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const url = getSasUrl(`${bucket}/${path}`)
+    const url = await getSignedUrl(`${bucket}/${path}`)
     return NextResponse.json({ url })
   } catch (error) {
     return NextResponse.json(

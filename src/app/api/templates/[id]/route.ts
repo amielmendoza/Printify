@@ -56,7 +56,7 @@ export async function PUT(
 
   const { placeholders, ...rest } = parsed.data
   const data: Record<string, unknown> = { ...rest }
-  if (placeholders !== undefined) data.placeholders = JSON.stringify(placeholders)
+  if (placeholders !== undefined) data.placeholders = placeholders
 
   const updated = await prisma.template.update({ where: { id }, data })
   return NextResponse.json(mapTemplate(updated))

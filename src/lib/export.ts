@@ -9,13 +9,13 @@ export async function exportSingleCard(
   personName: string,
   backDataUrl?: string
 ) {
-  const dataUrl = exportCanvasToDataUrl(canvas, "png", 1.0, 3)
+  const dataUrl = exportCanvasToDataUrl(canvas, "png", 1.0, 2)
   const pdfBytes = await generateSingleCardPdf(dataUrl, backDataUrl)
   triggerDownload(pdfBytes, `${personName}-id-card.pdf`)
 }
 
 export function printSingleCard(canvas: Canvas, backDataUrl?: string, mode: "card" | "sheet" = "card") {
-  const dataUrl = exportCanvasToDataUrl(canvas)
+  const dataUrl = exportCanvasToDataUrl(canvas, "png", 1.0, 2)
   printImages([dataUrl], backDataUrl ? [backDataUrl] : undefined, mode)
 }
 
@@ -54,13 +54,13 @@ export async function printBatchCards(
     // Render front
     await renderPersonOnTemplate(canvas, template, person, templateImageUrl, photoUrl, { removeBg: options?.removeBg })
     await new Promise((r) => setTimeout(r, 50))
-    frontDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, 3))
+    frontDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, 2))
 
     // Render back (if duplex)
     if (backTemplate && backTemplateImageUrl) {
       await renderPersonOnTemplate(canvas, backTemplate, person, backTemplateImageUrl, photoUrl, { removeBg: options?.removeBg })
       await new Promise((r) => setTimeout(r, 50))
-      backDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, 3))
+      backDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, 2))
     }
   }
 
@@ -271,13 +271,13 @@ export async function exportBatchCards(
     // Render front
     await renderPersonOnTemplate(canvas, template, person, templateImageUrl, photoUrl, { removeBg: renderOptions?.removeBg })
     await new Promise((r) => setTimeout(r, 50))
-    frontDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, 3))
+    frontDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, 2))
 
     // Render back (if duplex)
     if (backTemplate && backTemplateImageUrl) {
       await renderPersonOnTemplate(canvas, backTemplate, person, backTemplateImageUrl, photoUrl, { removeBg: renderOptions?.removeBg })
       await new Promise((r) => setTimeout(r, 50))
-      backDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, 3))
+      backDataUrls.push(exportCanvasToDataUrl(canvas, "png", 1.0, 2))
     }
   }
 

@@ -1,36 +1,38 @@
-// Printify data model — SQL Server (migrated off Supabase/Postgres).
+// Printify data model — Supabase Postgres (via Prisma).
 //
-// Notes for this provider:
-// - SQL Server has no native JSON type in Prisma. The former Postgres `jsonb`
-//   columns (placeholders, metadata, render_state) are stored as NVARCHAR(MAX)
-//   holding a JSON string; serialize/parse at the application boundary.
-// - UUID primary keys are stored as strings (NVARCHAR(36)) and generated in the
-//   app via Prisma's uuid() to match the existing string-typed code and to make
-//   the one-time data import from Supabase a straight copy.
-// - Scalar fields are intentionally named in snake_case to match the existing
-//   application code (which reads e.g. person.first_name). Column names already
-//   match, so no @map is needed on scalars; only relation fields use camelCase.
-// - Row Level Security is gone; per-organization isolation is enforced in app code.
+// The Organization/Profile/Template/Person/IdCard models below were introspected
+// from the existing Supabase database (uuid PKs, timestamptz, jsonb, decimal) and
+// are kept byte-for-byte so `prisma db push` only ADDS the two missing tables
+// (users, print_logs) and the Auth.js profile->user link — it never alters the
+// existing tables or their 17 templates / 2 orgs of data.
+//
+// JSON columns (placeholders, metadata, render_state) are native jsonb; Prisma
+// returns/accepts them as parsed values, so db.ts mappers and the write paths use
+// objects directly (no JSON.stringify/parse).
+//
+// No Row Level Security is relied upon: Prisma connects as the postgres role
+// (bypasses RLS) and per-org isolation is enforced in app code (requireUser()).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlserver"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-// Replaces Supabase auth.users. Holds both locally-registered users
-// (password_hash set) and external-API users (external_user_id set).
+// Auth.js users: local accounts (password_hash) + external evesms users
+// (external_user_id). Replaces the previous Supabase auth.users dependency.
 model User {
-  id                String   @id @default(uuid()) @db.NVarChar(36)
-  email             String   @unique @db.NVarChar(320)
-  password_hash     String?  @db.NVarChar(255)
-  external_user_id  String?  @db.NVarChar(64)
-  external_username String?  @db.NVarChar(255)
-  created_at        DateTime @default(now())
-  updated_at        DateTime @default(now()) @updatedAt
+  id                String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email             String   @unique
+  password_hash     String?
+  external_user_id  String?
+  external_username String?
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   profile Profile?
 
@@ -38,119 +40,112 @@ model User {
 }
 
 model Organization {
-  id         String   @id @default(uuid()) @db.NVarChar(36)
-  name       String   @db.NVarChar(255)
-  slug       String   @unique @db.NVarChar(255)
-  logo_url   String?  @db.NVarChar(1024)
-  created_at DateTime @default(now())
-  updated_at DateTime @default(now()) @updatedAt
-
-  profiles  Profile[]
-  templates Template[]
-  persons   Person[]
-  idCards   IdCard[]
-  printLogs PrintLog[]
+  id         String     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name       String
+  slug       String     @unique
+  logo_url   String?
+  created_at DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at DateTime   @default(now()) @updatedAt @db.Timestamptz(6)
+  idCards    IdCard[]
+  persons    Person[]
+  profiles   Profile[]
+  templates  Template[]
+  printLogs  PrintLog[]
 
   @@map("organizations")
 }
 
 model Profile {
-  id              String   @id @db.NVarChar(36)
-  organization_id String?  @db.NVarChar(36)
-  full_name       String?  @db.NVarChar(255)
-  role            String   @default("member") @db.NVarChar(20)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @default(now()) @updatedAt
+  id              String        @id @db.Uuid
+  organization_id String?       @db.Uuid
+  full_name       String?
+  role            String        @default("member")
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime      @default(now()) @updatedAt @db.Timestamptz(6)
+  organization    Organization? @relation(fields: [organization_id], references: [id], onUpdate: NoAction)
+  user            User          @relation(fields: [id], references: [id], onDelete: Cascade)
 
-  user         User          @relation(fields: [id], references: [id], onDelete: Cascade)
-  organization Organization? @relation(fields: [organization_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([organization_id])
   @@map("profiles")
 }
 
 model Template {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  organization_id String   @db.NVarChar(36)
-  name            String   @db.NVarChar(255)
-  description     String?  @db.NVarChar(Max)
-  file_path       String   @db.NVarChar(1024)
-  file_type       String   @db.NVarChar(10)
-  width_inches    Float    @default(3.375)
-  height_inches   Float    @default(2.125)
-  placeholders    String   @default("[]") @db.NVarChar(Max) // JSON array
-  is_active       Boolean  @default(true)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @default(now()) @updatedAt
+  id              String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organization_id String       @db.Uuid
+  name            String
+  description     String?
+  file_path       String
+  file_type       String
+  width_inches    Decimal      @default(3.375) @db.Decimal
+  height_inches   Decimal      @default(2.125) @db.Decimal
+  placeholders    Json         @default("[]")
+  is_active       Boolean      @default(true)
+  created_at      DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+  idCards         IdCard[]
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  idCards      IdCard[]
-
-  @@index([organization_id])
+  @@index([organization_id], map: "idx_templates_org")
   @@map("templates")
 }
 
 model Person {
-  id              String   @id @default(uuid()) @db.NVarChar(36)
-  organization_id String   @db.NVarChar(36)
-  first_name      String   @db.NVarChar(255)
-  last_name       String   @db.NVarChar(255)
-  middle_name     String?  @db.NVarChar(255)
-  photo_path      String?  @db.NVarChar(1024)
-  person_type     String   @default("student") @db.NVarChar(20)
-  category        String?  @db.NVarChar(255)
-  id_number       String?  @db.NVarChar(255)
-  email           String?  @db.NVarChar(320)
-  phone           String?  @db.NVarChar(64)
-  metadata        String   @default("{}") @db.NVarChar(Max) // JSON object
-  is_active       Boolean  @default(true)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @default(now()) @updatedAt
+  id              String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organization_id String       @db.Uuid
+  first_name      String
+  last_name       String
+  middle_name     String?
+  photo_path      String?
+  person_type     String       @default("student")
+  category        String?
+  id_number       String?
+  email           String?
+  phone           String?
+  metadata        Json?        @default("{}")
+  is_active       Boolean      @default(true)
+  created_at      DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+  idCards         IdCard[]
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  idCards      IdCard[]
-
-  @@index([organization_id])
-  @@index([person_type])
-  @@index([last_name, first_name])
+  @@index([last_name, first_name], map: "idx_persons_name")
+  @@index([organization_id], map: "idx_persons_org")
+  @@index([person_type], map: "idx_persons_type")
   @@map("persons")
 }
 
 model IdCard {
-  id                String    @id @default(uuid()) @db.NVarChar(36)
-  organization_id   String    @db.NVarChar(36)
-  person_id         String    @db.NVarChar(36)
-  template_id       String    @db.NVarChar(36)
-  render_state      String?   @db.NVarChar(Max) // JSON object
-  exported_pdf_path String?   @db.NVarChar(1024)
-  status            String    @default("draft") @db.NVarChar(20)
-  valid_from        DateTime? @db.Date
-  valid_until       DateTime? @db.Date
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @default(now()) @updatedAt
+  id                String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organization_id   String       @db.Uuid
+  person_id         String       @db.Uuid
+  template_id       String       @db.Uuid
+  render_state      Json?
+  exported_pdf_path String?
+  status            String       @default("draft")
+  valid_from        DateTime?    @db.Date
+  valid_until       DateTime?    @db.Date
+  created_at        DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  person            Person       @relation(fields: [person_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  template          Template     @relation(fields: [template_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  organization Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  person       Person       @relation(fields: [person_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  template     Template     @relation(fields: [template_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([organization_id])
-  @@index([person_id])
-  @@index([template_id])
+  @@index([organization_id], map: "idx_id_cards_org")
+  @@index([person_id], map: "idx_id_cards_person")
+  @@index([template_id], map: "idx_id_cards_template")
   @@map("id_cards")
 }
 
 // Persons originate from an external API, so logs reference them by text id.
 model PrintLog {
-  id                 String   @id @default(uuid()) @db.NVarChar(36)
-  organization_id    String?  @db.NVarChar(36)
-  person_external_id String   @db.NVarChar(255)
-  person_name        String   @db.NVarChar(512)
-  template_id        String?  @db.NVarChar(36)
-  template_name      String?  @db.NVarChar(255)
-  action             String   @db.NVarChar(20)
-  created_at         DateTime @default(now())
-
-  organization Organization? @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  id                 String        @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  organization_id    String?       @db.Uuid
+  person_external_id String
+  person_name        String
+  template_id        String?       @db.Uuid
+  template_name      String?
+  action             String
+  created_at         DateTime      @default(now()) @db.Timestamptz(6)
+  organization       Organization? @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([organization_id])
   @@index([created_at(sort: Desc)])

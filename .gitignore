@@ -41,3 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+
+# local scratch / data dumps
+scratch_dev.log
+scripts/backup-data.json

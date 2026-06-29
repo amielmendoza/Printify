@@ -1,99 +1,75 @@
-import {
-  BlobServiceClient,
-  StorageSharedKeyCredential,
-  generateBlobSASQueryParameters,
-  BlobSASPermissions,
-  SASProtocol,
-} from "@azure/storage-blob"
+// Supabase Storage — replaces Azure Blob. Buckets are private; read access is
+// granted via short-lived signed URLs minted server-side (see getSignedUrl).
+//
+// Uses the Storage REST API directly via fetch rather than @supabase/supabase-js:
+// supabase-js eagerly initializes a realtime client whose `createClient` throws
+// on Node < 22 ("Node.js 20 detected without native WebSocket support"). The
+// REST endpoints have no such dependency and work on any Node version.
 
-// Azure Blob Storage — replaces Supabase Storage. Containers are private; read
-// access is granted via short-lived SAS URLs minted server-side (see getSasUrl).
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-const CONNECTION_STRING = process.env.AZURE_STORAGE_CONNECTION_STRING
-
-export const CONTAINERS = {
-  templates: process.env.AZURE_STORAGE_TEMPLATES_CONTAINER ?? "templates",
-  photos: process.env.AZURE_STORAGE_PHOTOS_CONTAINER ?? "photos",
+export const BUCKETS = {
+  templates: "templates",
+  photos: "photos",
 } as const
 
-export type BucketName = keyof typeof CONTAINERS
+export type BucketName = keyof typeof BUCKETS
 
-let serviceClient: BlobServiceClient | null = null
-
-function getService(): BlobServiceClient {
-  if (!CONNECTION_STRING) {
-    throw new Error("AZURE_STORAGE_CONNECTION_STRING is not configured")
+function storageBase(): string {
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not configured"
+    )
   }
-  if (!serviceClient) {
-    serviceClient = BlobServiceClient.fromConnectionString(CONNECTION_STRING)
-  }
-  return serviceClient
+  return `${SUPABASE_URL}/storage/v1`
 }
 
-function parseCredential(): { accountName: string; credential: StorageSharedKeyCredential } {
-  // Parse AccountName / AccountKey from the connection string for SAS signing.
-  const parts = Object.fromEntries(
-    (CONNECTION_STRING ?? "")
-      .split(";")
-      .map((kv) => {
-        const idx = kv.indexOf("=")
-        return idx === -1 ? [kv, ""] : [kv.slice(0, idx), kv.slice(idx + 1)]
-      })
-  ) as Record<string, string>
-
-  const accountName = parts.AccountName
-  const accountKey = parts.AccountKey
-  if (!accountName || !accountKey) {
-    throw new Error("Connection string missing AccountName/AccountKey for SAS")
-  }
-  return {
-    accountName,
-    credential: new StorageSharedKeyCredential(accountName, accountKey),
-  }
+function authHeaders(): Record<string, string> {
+  return { Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY as string }
 }
 
-// Uploads a file and returns its storage path in the form "<container>/<blob>",
-// matching the previous Supabase path convention used throughout the app.
+// Uploads a file and returns its storage path in the form "<bucket>/<blob>",
+// matching the path convention used throughout the app.
 export async function uploadFile(
   bucket: BucketName,
   blobName: string,
   data: Buffer | ArrayBuffer | Uint8Array,
   contentType: string
 ): Promise<string> {
-  const container = getService().getContainerClient(CONTAINERS[bucket])
-  const blob = container.getBlockBlobClient(blobName)
-  const buffer = data instanceof Buffer ? data : Buffer.from(data as ArrayBuffer)
-  await blob.uploadData(buffer, {
-    blobHTTPHeaders: { blobContentType: contentType },
+  const body = data instanceof Buffer ? data : Buffer.from(data as ArrayBuffer)
+  const res = await fetch(`${storageBase()}/object/${BUCKETS[bucket]}/${blobName}`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": contentType },
+    body: new Uint8Array(body),
   })
+  if (!res.ok) {
+    throw new Error(`Upload failed: ${res.status} ${await res.text()}`)
+  }
   return `${bucket}/${blobName}`
 }
 
-// Mints a short-lived read-only SAS URL for a stored path ("<container>/<blob>"
-// or "<blob>" with an explicit bucket). Default lifetime: 1 hour.
-export function getSasUrl(
+// Mints a short-lived read-only signed URL for a stored path ("<bucket>/<blob>"
+// or "<blob>" defaulting to the photos bucket). Default lifetime: 1 hour.
+export async function getSignedUrl(
   storagePath: string,
   expiresInSeconds = 3600
-): string {
+): Promise<string> {
   const { bucket, blobName } = splitPath(storagePath)
-  const { accountName, credential } = parseCredential()
-
-  const now = Date.now()
-  const sas = generateBlobSASQueryParameters(
+  const res = await fetch(
+    `${storageBase()}/object/sign/${BUCKETS[bucket]}/${blobName}`,
     {
-      containerName: CONTAINERS[bucket],
-      blobName,
-      permissions: BlobSASPermissions.parse("r"),
-      protocol: SASProtocol.Https,
-      startsOn: new Date(now - 5 * 60 * 1000), // 5 min clock skew
-      expiresOn: new Date(now + expiresInSeconds * 1000),
-    },
-    credential
-  ).toString()
-
-  return `https://${accountName}.blob.core.windows.net/${CONTAINERS[bucket]}/${encodeURIComponent(
-    blobName
-  ).replace(/%2F/g, "/")}?${sas}`
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ expiresIn: expiresInSeconds }),
+    }
+  )
+  if (!res.ok) {
+    throw new Error(`Failed to create signed URL: ${res.status} ${await res.text()}`)
+  }
+  const data = (await res.json()) as { signedURL: string }
+  // signedURL is relative to /storage/v1, e.g. "/object/sign/<bucket>/<blob>?token=..."
+  return `${storageBase()}${data.signedURL}`
 }
 
 // Accepts either "<bucket>/<blob...>" or a bare blob name (defaults to photos).
