@@ -233,7 +233,7 @@ export function PersonForm({ open, onOpenChange, person, onSaved }: PersonFormPr
             </FormSection>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>

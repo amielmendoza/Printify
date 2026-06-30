@@ -205,7 +205,7 @@ export function TemplateUploadForm({ open, onOpenChange, onSaved, duplicateFrom 
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
