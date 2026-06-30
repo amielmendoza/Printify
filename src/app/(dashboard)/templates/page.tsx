@@ -16,6 +16,7 @@ import type { Template } from "@/lib/types"
 export default function TemplatesPage() {
   const { templates, loading, refetch } = useTemplates()
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [duplicateFrom, setDuplicateFrom] = useState<Template | null>(null)
   const [editTemplate, setEditTemplate] = useState<Template | null>(null)
   const [search, setSearch] = useState("")
 
@@ -109,6 +110,7 @@ export default function TemplatesPage() {
                   key={t.id}
                   template={t}
                   onEdit={setEditTemplate}
+                  onDuplicate={setDuplicateFrom}
                   onDelete={handleDelete}
                 />
               ))}
@@ -118,8 +120,14 @@ export default function TemplatesPage() {
       </div>
 
       <TemplateUploadForm
-        open={uploadOpen}
-        onOpenChange={setUploadOpen}
+        open={uploadOpen || !!duplicateFrom}
+        onOpenChange={(open) => {
+          if (!open) {
+            setUploadOpen(false)
+            setDuplicateFrom(null)
+          }
+        }}
+        duplicateFrom={duplicateFrom}
         onSaved={refetch}
       />
 

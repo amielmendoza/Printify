@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -8,19 +8,36 @@ import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
 import { Upload, FileImage, FilePlus, Loader2, X, Layout } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import type { Template } from "@/lib/types"
 
 interface TemplateUploadFormProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSaved: () => void
+  // When set, the form duplicates this template: name/size/placeholders are
+  // copied and the user only picks a new image.
+  duplicateFrom?: Template | null
 }
 
-export function TemplateUploadForm({ open, onOpenChange, onSaved }: TemplateUploadFormProps) {
+export function TemplateUploadForm({ open, onOpenChange, onSaved, duplicateFrom }: TemplateUploadFormProps) {
   const [loading, setLoading] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
+
+  // Seed fields each time the dialog opens: in duplicate mode prefill from the
+  // source template; otherwise start blank. The image is always chosen fresh.
+  useEffect(() => {
+    if (!open) return
+    setFile(null)
+    setName(duplicateFrom ? `${duplicateFrom.name} copy` : "")
+    setDescription(duplicateFrom?.description ?? "")
+  }, [open, duplicateFrom])
+
+  const copiedPlaceholders = duplicateFrom
+    ? (duplicateFrom.placeholders as unknown[]).length
+    : 0
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -45,7 +62,11 @@ export function TemplateUploadForm({ open, onOpenChange, onSaved }: TemplateUplo
           description: description || null,
           file_path: uploadData.path,
           file_type: fileType,
-          placeholders: [],
+          // Carry over the source template's layout when duplicating.
+          placeholders: duplicateFrom ? duplicateFrom.placeholders : [],
+          ...(duplicateFrom
+            ? { width_inches: duplicateFrom.width_inches, height_inches: duplicateFrom.height_inches }
+            : {}),
         }),
       })
 
@@ -54,7 +75,7 @@ export function TemplateUploadForm({ open, onOpenChange, onSaved }: TemplateUplo
         throw new Error(data.error)
       }
 
-      toast.success("Template uploaded", { description: name })
+      toast.success(duplicateFrom ? "Template duplicated" : "Template uploaded", { description: name })
       onSaved()
       onOpenChange(false)
       setFile(null)
@@ -87,12 +108,18 @@ export function TemplateUploadForm({ open, onOpenChange, onSaved }: TemplateUplo
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Templates</p>
-            <h2 className="text-[15px] font-semibold tracking-tight">Upload template</h2>
+            <h2 className="text-[15px] font-semibold tracking-tight">{duplicateFrom ? "Duplicate template" : "Upload template"}</h2>
           </div>
         </div>
 
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 p-5">
+            {duplicateFrom && (
+              <div className="rounded-lg bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground ring-1 ring-primary/10">
+                Copying {copiedPlaceholders} placeholder{copiedPlaceholders === 1 ? "" : "s"} and the card size from{" "}
+                <span className="font-medium text-foreground">{duplicateFrom.name}</span>. Just choose the new template image.
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="template-name" className="text-[12px]">Template name</Label>
               <Input
@@ -184,7 +211,7 @@ export function TemplateUploadForm({ open, onOpenChange, onSaved }: TemplateUplo
             </Button>
             <Button type="submit" disabled={loading || !file} className="gap-1.5">
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FilePlus className="h-3.5 w-3.5" />}
-              {loading ? "Uploading…" : "Upload template"}
+              {loading ? "Uploading…" : duplicateFrom ? "Create duplicate" : "Upload template"}
             </Button>
           </DialogFooter>
         </form>

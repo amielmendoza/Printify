@@ -9,16 +9,17 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { Pencil, Trash2, FileImage, MoreVertical, ExternalLink, Copy } from "lucide-react"
+import { Pencil, Trash2, FileImage, MoreVertical, ExternalLink, Copy, CopyPlus } from "lucide-react"
 import type { Template } from "@/lib/types"
 
 interface TemplateCardProps {
   template: Template
   onEdit: (template: Template) => void
+  onDuplicate: (template: Template) => void
   onDelete: (id: string) => void
 }
 
-export function TemplateCard({ template, onEdit, onDelete }: TemplateCardProps) {
+export function TemplateCard({ template, onEdit, onDuplicate, onDelete }: TemplateCardProps) {
   const fileUrl = useStorageUrl("templates", template.file_path)
   const placeholderCount = (template.placeholders as unknown[]).length
   const updatedAgo = template.updated_at
@@ -77,6 +78,9 @@ export function TemplateCard({ template, onEdit, onDelete }: TemplateCardProps) 
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => onEdit(template)}>
                 <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onDuplicate(template)}>
+                <CopyPlus className="mr-2 h-3.5 w-3.5" /> Duplicate
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => fileUrl && window.open(fileUrl, "_blank")}>
                 <ExternalLink className="mr-2 h-3.5 w-3.5" /> Open original
