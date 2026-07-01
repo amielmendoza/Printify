@@ -42,6 +42,41 @@ const fieldOptions = [
   { value: "emergency_address", label: "Emergency Address" },
 ]
 
+// Fonts available on the canvas/print. These are common Windows/Office system
+// fonts, so they render in the preview and the rasterized print/PDF output
+// without any web-font loading. (Add custom/Google fonts only if we load them.)
+const FONT_FAMILIES = [
+  "Arial",
+  "Arial Black",
+  "Arial Narrow",
+  "Bahnschrift",
+  "Book Antiqua",
+  "Calibri",
+  "Cambria",
+  "Candara",
+  "Century Gothic",
+  "Comic Sans MS",
+  "Consolas",
+  "Constantia",
+  "Corbel",
+  "Courier New",
+  "Franklin Gothic Medium",
+  "Garamond",
+  "Georgia",
+  "Helvetica",
+  "Impact",
+  "Lucida Console",
+  "Lucida Sans Unicode",
+  "Palatino Linotype",
+  "Rockwell",
+  "Segoe UI",
+  "Sitka",
+  "Tahoma",
+  "Times New Roman",
+  "Trebuchet MS",
+  "Verdana",
+]
+
 type PlaceholderKind = "photo" | "text" | "qrcode"
 
 const typeMeta: Record<PlaceholderKind, {
@@ -531,7 +566,7 @@ export function TemplateEditor({ template, onCancel, onSaved }: TemplateEditorPr
                                       <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {["Arial","Helvetica","Times New Roman","Georgia","Verdana","Courier New","Impact","Comic Sans MS","Trebuchet MS","Tahoma"].map((f) => (
+                                      {FONT_FAMILIES.map((f) => (
                                         <SelectItem key={f} value={f}>{f}</SelectItem>
                                       ))}
                                     </SelectContent>
