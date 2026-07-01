@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Plus,
@@ -19,15 +18,17 @@ import {
   ChevronRight,
   Loader2,
   Layout,
+  ArrowLeft,
+  MoveHorizontal,
+  MoveVertical,
 } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import type { Template, Placeholder } from "@/lib/types"
 
 interface TemplateEditorProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
   template: Template
+  onCancel: () => void
   onSaved: () => void
 }
 
@@ -64,13 +65,16 @@ type DragState = {
   origH: number
 } | null
 
-export function TemplateEditor({ open, onOpenChange, template, onSaved }: TemplateEditorProps) {
+export function TemplateEditor({ template, onCancel, onSaved }: TemplateEditorProps) {
   const [placeholders, setPlaceholders] = useState<Placeholder[]>(
     (template.placeholders as unknown as Placeholder[]) ?? []
   )
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<number | null>(null)
   const [expanded, setExpanded] = useState<Set<number>>(new Set([0]))
+  // The preview scales to fit the available area using the image's real aspect
+  // ratio, so the whole card is visible without scrolling.
+  const [imgAspect, setImgAspect] = useState<number | null>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState>(null)
 
@@ -166,7 +170,6 @@ export function TemplateEditor({ open, onOpenChange, template, onSaved }: Templa
       if (!res.ok) throw new Error("Save failed")
       toast.success("Placeholders saved", { description: `${placeholders.length} placeholder${placeholders.length === 1 ? "" : "s"} on ${template.name}` })
       onSaved()
-      onOpenChange(false)
     } catch (err) {
       toast.error("Failed to save placeholders")
       console.error(err)
@@ -176,27 +179,34 @@ export function TemplateEditor({ open, onOpenChange, template, onSaved }: Templa
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-6xl max-h-[92vh] gap-0 p-0">
-        {/* Header */}
-        <div className="flex items-center gap-3 border-b px-5 py-4">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
-            <Layout className="h-4 w-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Edit template</p>
-            <h2 className="truncate text-[15px] font-semibold tracking-tight">{template.name}</h2>
-          </div>
+    <div className="flex h-full flex-col">
+      {/* Header */}
+      <div className="flex items-center gap-3 border-b px-5 py-4">
+        <Button variant="outline" size="icon-sm" onClick={onCancel} className="shrink-0">
+          <ArrowLeft className="h-3.5 w-3.5" />
+        </Button>
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
+          <Layout className="h-4 w-4" />
         </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Edit template</p>
+          <h2 className="truncate text-[15px] font-semibold tracking-tight">{template.name}</h2>
+        </div>
+      </div>
 
-        {/* Body */}
-        <div className="grid max-h-[calc(92vh-9rem)] grid-cols-[1.1fr_1fr]">
+      {/* Body */}
+      <div className="grid min-h-0 flex-1 grid-cols-[1.1fr_1fr] grid-rows-[minmax(0,1fr)]">
           {/* Left — preview */}
-          <div className="flex flex-col overflow-hidden border-r bg-muted/40">
-            <div className="flex-1 overflow-auto scrollbar-thin p-5">
+          <div className="flex min-h-0 flex-col overflow-hidden border-r bg-muted/40">
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto scrollbar-thin p-5">
               <div
                 ref={imageContainerRef}
-                className="relative select-none overflow-hidden rounded-xl bg-card shadow-md ring-1 ring-border"
+                className="relative mx-auto max-h-full max-w-full select-none overflow-hidden rounded-xl bg-card shadow-md ring-1 ring-border"
+                style={
+                  imgAspect
+                    ? { aspectRatio: String(imgAspect), height: "100%", width: "auto" }
+                    : { width: "100%" }
+                }
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onClick={() => setSelected(null)}
@@ -205,8 +215,11 @@ export function TemplateEditor({ open, onOpenChange, template, onSaved }: Templa
                 <img
                   src={templateUrl ?? undefined}
                   alt={template.name}
-                  className="pointer-events-none block w-full"
+                  className="pointer-events-none block h-full w-full"
                   draggable={false}
+                  onLoad={(e) =>
+                    setImgAspect(e.currentTarget.naturalWidth / e.currentTarget.naturalHeight)
+                  }
                 />
                 {placeholders.map((ph, i) => {
                   const isSelected = selected === i
@@ -259,7 +272,7 @@ export function TemplateEditor({ open, onOpenChange, template, onSaved }: Templa
           </div>
 
           {/* Right — placeholders panel */}
-          <div className="flex flex-col overflow-hidden">
+          <div className="flex min-h-0 flex-col overflow-hidden">
             <div className="flex items-center justify-between border-b px-5 py-3">
               <div className="flex items-center gap-2">
                 <h3 className="text-[13px] font-semibold tracking-tight">Placeholders</h3>
@@ -273,7 +286,7 @@ export function TemplateEditor({ open, onOpenChange, template, onSaved }: Templa
               </Button>
             </div>
 
-            <ScrollArea className="flex-1">
+            <ScrollArea className="min-h-0 flex-1">
               <div className="space-y-2 p-4">
                 {placeholders.length === 0 ? (
                   <div className="flex flex-col items-center px-6 py-12 text-center">
@@ -408,6 +421,32 @@ export function TemplateEditor({ open, onOpenChange, template, onSaved }: Templa
                                 <NumberField label="W%" value={ph.width} onChange={(v) => updatePlaceholder(i, { width: v })} />
                                 <NumberField label="H%" value={ph.height} onChange={(v) => updatePlaceholder(i, { height: v })} />
                               </div>
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 gap-1 text-[11px]"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    updatePlaceholder(i, { x: Math.round((100 - ph.width) / 2) })
+                                  }}
+                                >
+                                  <MoveHorizontal className="h-3 w-3" /> Center H
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 gap-1 text-[11px]"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    updatePlaceholder(i, { y: Math.round((100 - ph.height) / 2) })
+                                  }}
+                                >
+                                  <MoveVertical className="h-3 w-3" /> Center V
+                                </Button>
+                              </div>
                             </div>
 
                             {ph.type === "text" && (
@@ -512,20 +551,19 @@ export function TemplateEditor({ open, onOpenChange, template, onSaved }: Templa
         </div>
 
         {/* Footer */}
-        <DialogFooter className="-mx-0 -mb-0 border-t bg-card px-5 py-3">
+        <div className="flex items-center gap-2 border-t bg-card px-5 py-3">
           <p className="hidden text-[11px] text-muted-foreground sm:mr-auto sm:block">
             Tip: click a placeholder on the preview to focus it.
           </p>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={onCancel}>
             Cancel
           </Button>
           <Button onClick={handleSave} disabled={loading} className="gap-1.5">
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             {loading ? "Saving…" : "Save placeholders"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
   )
 }
 

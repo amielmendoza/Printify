@@ -50,13 +50,43 @@ export async function loadTemplateBackground(
   canvas.renderAll()
 }
 
+// Fits a photo inside the placeholder rectangle (contain: whole photo shown, no
+// crop) and clips it to that box. Called on first placement and again after a
+// progressive swap in case the replacement image has different dimensions.
+function fitPhotoToPlaceholder(
+  img: FabricImage,
+  px: number,
+  py: number,
+  pw: number,
+  ph: number
+): void {
+  const scale = Math.min(pw / (img.width ?? 1), ph / (img.height ?? 1))
+  const scaledW = (img.width ?? 1) * scale
+  const scaledH = (img.height ?? 1) * scale
+  img.set({
+    left: px - (scaledW - pw) / 2,
+    top: py - (scaledH - ph) / 2,
+    scaleX: scale,
+    scaleY: scale,
+    selectable: false,
+    evented: false,
+  })
+  img.clipPath = new Rect({ left: px, top: py, width: pw, height: ph, absolutePositioned: true })
+}
+
+// Adds a person photo to the placeholder.
+// - progressive (preview): places the ORIGINAL photo immediately for an instant
+//   preview, then swaps in the background-removed version when it's ready. The
+//   returned `settled` resolves once that swap (if any) completes.
+// - non-progressive (export/print): awaits background removal first so the
+//   captured output already has the transparent background.
 export async function addPersonPhoto(
   canvas: Canvas,
   photoUrl: string,
   placeholder: Placeholder,
-  removeBg: boolean = false,
-  signal?: AbortSignal
-): Promise<FabricImage | null> {
+  options?: { removeBg?: boolean; progressive?: boolean; signal?: AbortSignal }
+): Promise<{ image: FabricImage; settled: Promise<void> } | null> {
+  const { removeBg = false, progressive = false, signal } = options ?? {}
   const canvasW = canvas.getWidth()
   const canvasH = canvas.getHeight()
   const px = (placeholder.x / 100) * canvasW
@@ -64,66 +94,47 @@ export async function addPersonPhoto(
   const pw = (placeholder.width / 100) * canvasW
   const ph = (placeholder.height / 100) * canvasH
 
-  let finalUrl = photoUrl
-  if (removeBg) {
+  // Export path: resolve the final (background-removed) image before placing.
+  if (removeBg && !progressive) {
+    let finalUrl = photoUrl
     try {
       finalUrl = await removeImageBackground(photoUrl)
     } catch (e) {
       console.warn("Background removal failed, using original photo:", e)
     }
+    if (signal?.aborted) return null
+    const img = await FabricImage.fromURL(finalUrl, { crossOrigin: "anonymous" })
+    if (signal?.aborted) return null
+    fitPhotoToPlaceholder(img, px, py, pw, ph)
+    canvas.add(img)
+    canvas.renderAll()
+    return { image: img, settled: Promise.resolve() }
   }
 
+  // Preview path: place the original immediately.
+  const img = await FabricImage.fromURL(photoUrl, { crossOrigin: "anonymous" })
   if (signal?.aborted) return null
-
-  const img = await FabricImage.fromURL(finalUrl, { crossOrigin: "anonymous" })
-
-  if (signal?.aborted) return null
-
-  // Scale to FIT inside the placeholder (contain): the whole photo is shown,
-  // scaled so it fits within the box without cropping. Use Math.min so the
-  // larger dimension determines the scale; differing aspect ratios leave the
-  // template visible around the photo rather than cropping it.
-  const scaleX = pw / (img.width ?? 1)
-  const scaleY = ph / (img.height ?? 1)
-  const scale = Math.min(scaleX, scaleY)
-
-  // Center the image within the placeholder
-  const scaledW = (img.width ?? 1) * scale
-  const scaledH = (img.height ?? 1) * scale
-  const offsetX = (scaledW - pw) / 2
-  const offsetY = (scaledH - ph) / 2
-
-  img.set({
-    left: px - offsetX,
-    top: py - offsetY,
-    scaleX: scale,
-    scaleY: scale,
-    selectable: true,
-    evented: true,
-    hasControls: true,
-    hasBorders: true,
-    lockRotation: true,
-    hoverCursor: "grab",
-    moveCursor: "grabbing",
-  })
-
-  // Clip the photo to the placeholder rectangle so it always occupies exactly
-  // that box (fill + center-crop), regardless of the source photo's aspect
-  // ratio. Without this, cover-scaling lets larger/differently-shaped photos
-  // overflow the placeholder by varying amounts. absolutePositioned keeps the
-  // clip window fixed in canvas coordinates, so dragging the image repositions
-  // the face within a stable frame.
-  img.clipPath = new Rect({
-    left: px,
-    top: py,
-    width: pw,
-    height: ph,
-    absolutePositioned: true,
-  })
-
+  fitPhotoToPlaceholder(img, px, py, pw, ph)
   canvas.add(img)
   canvas.renderAll()
-  return img
+
+  // Then swap in the background-removed version when ready (preview only).
+  let settled = Promise.resolve()
+  if (removeBg && progressive) {
+    settled = removeImageBackground(photoUrl)
+      .then(async (removedUrl) => {
+        if (signal?.aborted || !canvas.getObjects().includes(img)) return
+        await img.setSrc(removedUrl, { crossOrigin: "anonymous" })
+        if (signal?.aborted || !canvas.getObjects().includes(img)) return
+        fitPhotoToPlaceholder(img, px, py, pw, ph) // re-fit in case dims changed
+        canvas.requestRenderAll()
+      })
+      .catch(() => {
+        /* background removal failed — keep the original photo */
+      })
+  }
+
+  return { image: img, settled }
 }
 
 export function addTextField(
@@ -150,13 +161,8 @@ export function addTextField(
     fontFamily: style.fontFamily ?? "Arial",
     fontWeight: style.fontWeight ?? "normal",
     fill: style.color ?? "#000000",
-    selectable: true,
-    evented: true,
-    hasControls: true,
-    hasBorders: true,
-    lockRotation: true,
-    hoverCursor: "grab",
-    moveCursor: "grabbing",
+    selectable: false,
+    evented: false,
   })
 
   // Auto-shrink text to fit within the placeholder width
@@ -277,13 +283,8 @@ export async function addHtmlLabel(
     top: py,
     scaleX: imgScale,
     scaleY: imgScale,
-    selectable: true,
-    evented: true,
-    hasControls: true,
-    hasBorders: true,
-    lockRotation: true,
-    hoverCursor: "grab",
-    moveCursor: "grabbing",
+    selectable: false,
+    evented: false,
   })
 
   canvas.add(fabricImg)
@@ -324,13 +325,8 @@ export async function addQrCode(
     top: py + offsetY,
     scaleX: scale,
     scaleY: scale,
-    selectable: true,
-    evented: true,
-    hasControls: true,
-    hasBorders: true,
-    lockRotation: true,
-    hoverCursor: "grab",
-    moveCursor: "grabbing",
+    selectable: false,
+    evented: false,
   })
 
   canvas.add(img)
@@ -377,26 +373,37 @@ function getPersonFieldValue(
   return label
 }
 
-export async function renderPersonOnTemplate(
+// Removes all overlay objects (photo, text, QR) but keeps the template
+// backgroundImage — so switching people doesn't require reloading the template.
+export function clearOverlays(canvas: Canvas): void {
+  canvas.remove(...canvas.getObjects())
+}
+
+// Renders just the person's overlays onto an already-loaded template background.
+// Assumes the background + canvas dimensions are already set.
+export async function renderPersonOverlays(
   canvas: Canvas,
   template: Template,
   person: Person,
-  templateImageUrl: string,
   photoUrl: string | null,
-  options?: { removeBg?: boolean; signal?: AbortSignal }
-): Promise<void> {
-  canvas.clear()
-  await loadTemplateBackground(canvas, templateImageUrl)
-
-  if (options?.signal?.aborted) return
+  options?: { removeBg?: boolean; progressive?: boolean; signal?: AbortSignal }
+): Promise<{ settled: Promise<void> }> {
+  clearOverlays(canvas)
+  if (options?.signal?.aborted) return { settled: Promise.resolve() }
 
   const placeholders = template.placeholders as unknown as Placeholder[]
+  let settled = Promise.resolve()
 
   for (const ph of placeholders) {
-    if (options?.signal?.aborted) return
+    if (options?.signal?.aborted) break
 
     if (ph.type === "photo" && photoUrl) {
-      await addPersonPhoto(canvas, photoUrl, ph, options?.removeBg, options?.signal)
+      const res = await addPersonPhoto(canvas, photoUrl, ph, {
+        removeBg: options?.removeBg,
+        progressive: options?.progressive,
+        signal: options?.signal,
+      })
+      if (res) settled = res.settled
     } else if (ph.type === "text") {
       const text = getPersonFieldValue(person, ph.field, ph.label)
       if (text) {
@@ -413,6 +420,23 @@ export async function renderPersonOnTemplate(
   }
 
   if (!options?.signal?.aborted) canvas.renderAll()
+  return { settled }
+}
+
+// Full render: load the template background then the person overlays. Used by
+// the batch/export paths where the canvas is reused across many templates.
+export async function renderPersonOnTemplate(
+  canvas: Canvas,
+  template: Template,
+  person: Person,
+  templateImageUrl: string,
+  photoUrl: string | null,
+  options?: { removeBg?: boolean; signal?: AbortSignal }
+): Promise<void> {
+  canvas.clear()
+  await loadTemplateBackground(canvas, templateImageUrl)
+  if (options?.signal?.aborted) return
+  await renderPersonOverlays(canvas, template, person, photoUrl, options)
 }
 
 export function exportCanvasToDataUrl(

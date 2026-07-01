@@ -158,7 +158,11 @@ export function EditorToolbar({ onExportSingle, onExportBatch, onPrintSingle, on
         <Tooltip>
           <TooltipTrigger
             render={
-              <Button variant="ghost" size="icon-sm" onClick={() => setZoom(1)}>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => window.dispatchEvent(new Event("printify:fit-canvas"))}
+              >
                 <Maximize2 className="h-3 w-3" />
               </Button>
             }
@@ -190,27 +194,34 @@ export function EditorToolbar({ onExportSingle, onExportBatch, onPrintSingle, on
                 disabled={!hasCard || isGenerating}
               >
                 <Printer className="h-3.5 w-3.5" />
-                Print
+                Print current
               </Button>
             }
           />
-          <TooltipContent>Print current card</TooltipContent>
+          <TooltipContent>Print the single card currently shown</TooltipContent>
         </Tooltip>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn("h-9 gap-1.5", hasBatch && "border-primary/30")}
-          onClick={onPrintBatch}
-          disabled={!hasBatch || isGenerating}
-        >
-          <Printer className="h-3.5 w-3.5" />
-          Batch
-          {selectedPersonIds.length > 0 && (
-            <span className="ml-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary tabular-nums">
-              {selectedPersonIds.length}
-            </span>
-          )}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn("h-9 gap-1.5", hasBatch && "border-primary/30")}
+                onClick={onPrintBatch}
+                disabled={!hasBatch || isGenerating}
+              >
+                <Printer className="h-3.5 w-3.5" />
+                Print all
+                {selectedPersonIds.length > 0 && (
+                  <span className="ml-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary tabular-nums">
+                    {selectedPersonIds.length}
+                  </span>
+                )}
+              </Button>
+            }
+          />
+          <TooltipContent>Print all selected people ({selectedPersonIds.length})</TooltipContent>
+        </Tooltip>
       </div>
 
       <Separator orientation="vertical" className="mx-1 h-6" />
@@ -232,22 +243,29 @@ export function EditorToolbar({ onExportSingle, onExportBatch, onPrintSingle, on
               </Button>
             }
           />
-          <TooltipContent>Export as PDF</TooltipContent>
+          <TooltipContent>Export the current card as PDF</TooltipContent>
         </Tooltip>
-        <Button
-          size="sm"
-          className="h-9 gap-1.5"
-          onClick={onExportBatch}
-          disabled={!hasBatch || isGenerating}
-        >
-          <FileStack className="h-3.5 w-3.5" />
-          Export
-          {selectedPersonIds.length > 0 && (
-            <span className="ml-0.5 rounded-md bg-primary-foreground/20 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums">
-              {selectedPersonIds.length}
-            </span>
-          )}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="sm"
+                className="h-9 gap-1.5"
+                onClick={onExportBatch}
+                disabled={!hasBatch || isGenerating}
+              >
+                <FileStack className="h-3.5 w-3.5" />
+                Export all
+                {selectedPersonIds.length > 0 && (
+                  <span className="ml-0.5 rounded-md bg-primary-foreground/20 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums">
+                    {selectedPersonIds.length}
+                  </span>
+                )}
+              </Button>
+            }
+          />
+          <TooltipContent>Export all selected people as PDF ({selectedPersonIds.length})</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   )

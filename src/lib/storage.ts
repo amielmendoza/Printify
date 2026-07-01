@@ -35,18 +35,33 @@ export async function uploadFile(
   bucket: BucketName,
   blobName: string,
   data: Buffer | ArrayBuffer | Uint8Array,
-  contentType: string
+  contentType: string,
+  upsert = false
 ): Promise<string> {
   const body = data instanceof Buffer ? data : Buffer.from(data as ArrayBuffer)
   const res = await fetch(`${storageBase()}/object/${BUCKETS[bucket]}/${blobName}`, {
     method: "POST",
-    headers: { ...authHeaders(), "Content-Type": contentType },
+    headers: { ...authHeaders(), "Content-Type": contentType, "x-upsert": String(upsert) },
     body: new Uint8Array(body),
   })
   if (!res.ok) {
     throw new Error(`Upload failed: ${res.status} ${await res.text()}`)
   }
   return `${bucket}/${blobName}`
+}
+
+// Downloads a stored object's bytes, or null if it doesn't exist (used for the
+// background-removal cache). Server-only.
+export async function downloadFile(
+  bucket: BucketName,
+  blobName: string
+): Promise<ArrayBuffer | null> {
+  const res = await fetch(
+    `${storageBase()}/object/authenticated/${BUCKETS[bucket]}/${blobName}`,
+    { headers: authHeaders() }
+  )
+  if (!res.ok) return null
+  return res.arrayBuffer()
 }
 
 // Mints a short-lived read-only signed URL for a stored path ("<bucket>/<blob>"

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { useEditorStore } from "@/stores/editor-store"
 import { useAppStore } from "@/stores/app-store"
 import { usePersons } from "@/hooks/use-persons"
@@ -10,6 +10,7 @@ import { EditorWrapper } from "@/components/editor/editor-wrapper"
 import { PersonList } from "@/components/persons/person-list"
 import { GenerationProgress } from "./generation-progress"
 import { exportSingleCard, exportBatchCards, printSingleCard, printBatchCards } from "@/lib/export"
+import { createCanvas, renderPersonOnTemplate, exportCanvasToDataUrl } from "@/lib/canvas"
 import { toast } from "sonner"
 import type { Canvas } from "fabric"
 import type { Person, Template } from "@/lib/types"
@@ -23,11 +24,31 @@ export function GeneratorPageClient() {
   const selectedPersonIds = useAppStore((s) => s.selectedPersonIds)
   const { persons } = usePersons()
 
-  const getCanvas = useCallback((): Canvas | null => {
-    const ref = (window as unknown as Record<string, unknown>).__printifyCanvas as
-      | React.RefObject<Canvas | null>
-      | undefined
-    return ref?.current ?? null
+  // Dedicated offscreen canvas for all export/print rendering, so those
+  // operations never disturb the visible preview canvas (which caused the
+  // preview to get stuck on the back template after a batch run).
+  const offscreenRef = useRef<{ canvas: Canvas; container: HTMLDivElement } | null>(null)
+  const getOffscreenCanvas = useCallback((): Canvas => {
+    if (offscreenRef.current) return offscreenRef.current.canvas
+    const container = document.createElement("div")
+    container.style.cssText =
+      "position:fixed;top:-10000px;left:-10000px;width:0;height:0;overflow:hidden;pointer-events:none"
+    document.body.appendChild(container)
+    const el = document.createElement("canvas")
+    container.appendChild(el)
+    const canvas = createCanvas(el, 400, 600)
+    offscreenRef.current = { canvas, container }
+    return canvas
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      offscreenRef.current?.canvas.dispose()
+      if (offscreenRef.current?.container) {
+        document.body.removeChild(offscreenRef.current.container)
+      }
+      offscreenRef.current = null
+    }
   }, [])
 
   const recordCards = useCallback(
@@ -66,19 +87,18 @@ export function GeneratorPageClient() {
   )
 
   const handleExportSingle = useCallback(async () => {
-    const canvas = getCanvas()
-    if (!canvas || !person || !template) return
+    if (!person || !template) return
     try {
+      const canvas = getOffscreenCanvas()
+      const photoUrl = await getPhotoUrl(person)
       let backDataUrl: string | undefined
       if (backTemplate) {
-        const { renderPersonOnTemplate, exportCanvasToDataUrl } = await import("@/lib/canvas")
         const backImgUrl = await getTemplateImageUrl(backTemplate)
-        const photoUrl = await getPhotoUrl(person)
         await renderPersonOnTemplate(canvas, backTemplate, person, backImgUrl, photoUrl, { removeBg: true })
-        backDataUrl = exportCanvasToDataUrl(canvas, "png", 1.0, 3)
-        const frontImgUrl = await getTemplateImageUrl(template)
-        await renderPersonOnTemplate(canvas, template, person, frontImgUrl, photoUrl, { removeBg: true })
+        backDataUrl = exportCanvasToDataUrl(canvas, "png", 1.0, 2)
       }
+      const frontImgUrl = await getTemplateImageUrl(template)
+      await renderPersonOnTemplate(canvas, template, person, frontImgUrl, photoUrl, { removeBg: true })
       await exportSingleCard(canvas, `${person.first_name}-${person.last_name}`, backDataUrl)
       await recordCards([person], template, "exported")
       toast.success("ID card exported", { description: `${person.first_name} ${person.last_name}` })
@@ -86,11 +106,11 @@ export function GeneratorPageClient() {
       toast.error("Export failed")
       console.error(err)
     }
-  }, [getCanvas, person, template, backTemplate, getPhotoUrl, getTemplateImageUrl, recordCards])
+  }, [getOffscreenCanvas, person, template, backTemplate, getPhotoUrl, getTemplateImageUrl, recordCards])
 
   const handleExportBatch = useCallback(async () => {
-    const canvas = getCanvas()
-    if (!canvas || !template) return
+    if (!template) return
+    const canvas = getOffscreenCanvas()
 
     const selected = persons.filter((p: Person) => selectedPersonIds.includes(p.id))
     if (selected.length === 0) {
@@ -134,22 +154,21 @@ export function GeneratorPageClient() {
       setIsGenerating(false)
       setGenerationProgress(null)
     }
-  }, [getCanvas, template, backTemplate, persons, selectedPersonIds, getPhotoUrl, getTemplateImageUrl, setIsGenerating, setGenerationProgress, recordCards])
+  }, [getOffscreenCanvas, template, backTemplate, persons, selectedPersonIds, getPhotoUrl, getTemplateImageUrl, setIsGenerating, setGenerationProgress, recordCards])
 
   const handlePrintSingle = useCallback(async () => {
-    const canvas = getCanvas()
-    if (!canvas || !person || !template) return
+    if (!person || !template) return
     try {
+      const canvas = getOffscreenCanvas()
+      const photoUrl = await getPhotoUrl(person)
       let backDataUrl: string | undefined
       if (backTemplate) {
-        const { renderPersonOnTemplate, exportCanvasToDataUrl } = await import("@/lib/canvas")
         const backImgUrl = await getTemplateImageUrl(backTemplate)
-        const photoUrl = await getPhotoUrl(person)
         await renderPersonOnTemplate(canvas, backTemplate, person, backImgUrl, photoUrl, { removeBg: true })
         backDataUrl = exportCanvasToDataUrl(canvas, "png", 1.0, 1) // print: lighter raster
-        const frontImgUrl = await getTemplateImageUrl(template)
-        await renderPersonOnTemplate(canvas, template, person, frontImgUrl, photoUrl, { removeBg: true })
       }
+      const frontImgUrl = await getTemplateImageUrl(template)
+      await renderPersonOnTemplate(canvas, template, person, frontImgUrl, photoUrl, { removeBg: true })
       printSingleCard(canvas, backDataUrl)
       await recordCards([person], template, "printed")
       toast.success("Print dialog opened")
@@ -157,11 +176,11 @@ export function GeneratorPageClient() {
       toast.error("Print failed")
       console.error(err)
     }
-  }, [getCanvas, person, template, backTemplate, getPhotoUrl, getTemplateImageUrl, recordCards])
+  }, [getOffscreenCanvas, person, template, backTemplate, getPhotoUrl, getTemplateImageUrl, recordCards])
 
   const handlePrintBatch = useCallback(async () => {
-    const canvas = getCanvas()
-    if (!canvas || !template) return
+    if (!template) return
+    const canvas = getOffscreenCanvas()
 
     const selected = persons.filter((p: Person) => selectedPersonIds.includes(p.id))
     if (selected.length === 0) {
@@ -197,7 +216,7 @@ export function GeneratorPageClient() {
       setIsGenerating(false)
       setGenerationProgress(null)
     }
-  }, [getCanvas, template, backTemplate, persons, selectedPersonIds, getPhotoUrl, getTemplateImageUrl, setIsGenerating, setGenerationProgress, recordCards])
+  }, [getOffscreenCanvas, template, backTemplate, persons, selectedPersonIds, getPhotoUrl, getTemplateImageUrl, setIsGenerating, setGenerationProgress, recordCards])
 
   return (
     <div className="flex h-full">

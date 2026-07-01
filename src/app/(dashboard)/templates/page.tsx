@@ -1,23 +1,19 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
 import { useTemplates } from "@/hooks/use-templates"
 import { Header } from "@/components/layout/header"
 import { TemplateCard } from "@/components/templates/template-card"
-import { TemplateUploadForm } from "@/components/templates/template-upload-form"
-import { TemplateEditor } from "@/components/templates/template-editor"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Plus, Search, Layout, X } from "lucide-react"
 import { toast } from "sonner"
-import type { Template } from "@/lib/types"
 
 export default function TemplatesPage() {
+  const router = useRouter()
   const { templates, loading, refetch } = useTemplates()
-  const [uploadOpen, setUploadOpen] = useState(false)
-  const [duplicateFrom, setDuplicateFrom] = useState<Template | null>(null)
-  const [editTemplate, setEditTemplate] = useState<Template | null>(null)
   const [search, setSearch] = useState("")
 
   const filtered = useMemo(() => {
@@ -47,7 +43,7 @@ export default function TemplatesPage() {
         title="Templates"
         description={templates.length > 0 ? `${templates.length} active template${templates.length === 1 ? "" : "s"}` : "Upload ID card backgrounds"}
         actions={
-          <Button onClick={() => setUploadOpen(true)} size="sm" className="h-9 gap-1.5">
+          <Button onClick={() => router.push("/templates/new")} size="sm" className="h-9 gap-1.5">
             <Plus className="h-3.5 w-3.5" />
             Upload template
           </Button>
@@ -94,7 +90,7 @@ export default function TemplatesPage() {
               ))}
             </div>
           ) : templates.length === 0 ? (
-            <EmptyTemplates onUpload={() => setUploadOpen(true)} />
+            <EmptyTemplates onUpload={() => router.push("/templates/new")} />
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center py-20 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
@@ -109,8 +105,8 @@ export default function TemplatesPage() {
                 <TemplateCard
                   key={t.id}
                   template={t}
-                  onEdit={setEditTemplate}
-                  onDuplicate={setDuplicateFrom}
+                  onEdit={(tpl) => router.push(`/templates/${tpl.id}/edit`)}
+                  onDuplicate={(tpl) => router.push(`/templates/new?duplicate=${tpl.id}`)}
                   onDelete={handleDelete}
                 />
               ))}
@@ -119,26 +115,6 @@ export default function TemplatesPage() {
         </div>
       </div>
 
-      <TemplateUploadForm
-        open={uploadOpen || !!duplicateFrom}
-        onOpenChange={(open) => {
-          if (!open) {
-            setUploadOpen(false)
-            setDuplicateFrom(null)
-          }
-        }}
-        duplicateFrom={duplicateFrom}
-        onSaved={refetch}
-      />
-
-      {editTemplate && (
-        <TemplateEditor
-          open={!!editTemplate}
-          onOpenChange={(open) => !open && setEditTemplate(null)}
-          template={editTemplate}
-          onSaved={refetch}
-        />
-      )}
     </div>
   )
 }
