@@ -21,7 +21,7 @@ interface PersonListProps {
 
 export function PersonList({ showSelection = true, compact = false, requireGradeSection = false }: PersonListProps) {
   const [search, setSearch] = useState("")
-  const [personType, setPersonType] = useState<string>("all")
+  const [personType, setPersonType] = useState<string>("student")
   const [gradeLevel, setGradeLevel] = useState<string>("all")
   const [section, setSection] = useState<string>("all")
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
@@ -77,6 +77,10 @@ export function PersonList({ showSelection = true, compact = false, requireGrade
 
   function handleTypeChange(value: string) {
     setPersonType(value)
+    // Reset grade/section when switching tabs so a leftover student filter
+    // doesn't hide employees (and vice versa).
+    setGradeLevel("all")
+    setSection("all")
     setVisibleCount(PAGE_SIZE)
   }
 
@@ -93,14 +97,19 @@ export function PersonList({ showSelection = true, compact = false, requireGrade
 
   const remaining = persons.length - visibleCount
 
-  // Gate the list when we have student data and the user hasn't picked both
-  // grade level and section yet. Employees aren't affected.
-  const isStudentScope = personType === "all" || personType === "student"
+  // Gate the list until the user picks a section (and a grade, when grade data
+  // exists) — so we don't load the full student list (or their photos) until a
+  // section is chosen. Employees (no section data) aren't affected.
+  const isStudentScope = personType === "student"
   const hasGradeData = (gradeLevels?.length ?? 0) > 0
-  const filtersIncomplete =
-    !gradeLevel || gradeLevel === "all" || !section || section === "all"
+  const hasSectionData = (sections?.length ?? 0) > 0
+  const gradeMissing = hasGradeData && (!gradeLevel || gradeLevel === "all")
+  const sectionMissing = hasSectionData && (!section || section === "all")
   const isGated =
-    requireGradeSection && isStudentScope && hasGradeData && filtersIncomplete
+    requireGradeSection &&
+    isStudentScope &&
+    (hasGradeData || hasSectionData) &&
+    (gradeMissing || sectionMissing)
 
   return (
     <div className="relative flex h-full flex-col">
@@ -182,18 +191,25 @@ export function PersonList({ showSelection = true, compact = false, requireGrade
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
                 <Filter className="h-5 w-5 text-muted-foreground" />
               </div>
-              <p className="mt-3 text-[13px] font-semibold">Pick grade &amp; section</p>
+              <p className="mt-3 text-[13px] font-semibold">
+                {hasGradeData ? "Pick grade & section" : "Pick a section"}
+              </p>
               <p className="mt-1 max-w-[220px] text-[11px] text-muted-foreground">
-                Choose a <span className="font-medium text-foreground">grade level</span>
-                {" and "}
+                Choose a{" "}
+                {hasGradeData && (
+                  <>
+                    <span className="font-medium text-foreground">grade level</span>
+                    {" and "}
+                  </>
+                )}
                 <span className="font-medium text-foreground">section</span> above to load students.
               </p>
-              {(gradeLevel === "all" || !gradeLevel) && hasGradeData && (
+              {gradeMissing && (
                 <p className="mt-3 text-[10px] uppercase tracking-wider text-muted-foreground/70">
                   Grade level required
                 </p>
               )}
-              {gradeLevel && gradeLevel !== "all" && (!section || section === "all") && (
+              {!gradeMissing && sectionMissing && (
                 <p className="mt-3 text-[10px] uppercase tracking-wider text-muted-foreground/70">
                   Section required
                 </p>

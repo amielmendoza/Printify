@@ -4,7 +4,6 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, X } from "lucide-react"
-import type { PersonType } from "@/lib/types"
 
 interface PersonFiltersProps {
   search: string
@@ -19,8 +18,7 @@ interface PersonFiltersProps {
   sections?: string[]
 }
 
-const types: { value: PersonType | "all" | "employee"; label: string }[] = [
-  { value: "all", label: "All" },
+const types: { value: string; label: string }[] = [
   { value: "student", label: "Students" },
   { value: "employee", label: "Employees" },
 ]
@@ -37,7 +35,11 @@ export function PersonFilters({
   onSectionChange,
   sections,
 }: PersonFiltersProps) {
-  const showGradeSection = gradeLevels && gradeLevels.length > 0
+  // Grade/section filters only apply to students; employees have neither.
+  const isStudents = personType === "student"
+  const showGrade = isStudents && !!gradeLevels && gradeLevels.length > 0
+  const showSection = isStudents && !!sections && sections.length > 0
+  const gradeChosen = !!gradeLevel && gradeLevel !== "all"
 
   return (
     <div className="space-y-2">
@@ -68,32 +70,33 @@ export function PersonFilters({
           ))}
         </TabsList>
       </Tabs>
-      {showGradeSection && (
+      {(showGrade || showSection) && (
         <div className="flex gap-2">
-          <Select
-            value={gradeLevel ?? "all"}
-            onValueChange={(v) => onGradeLevelChange?.(v ?? "all")}
-          >
-            <SelectTrigger className="h-8 flex-1 text-[11px]">
-              <SelectValue placeholder="Grade level" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All grades</SelectItem>
-              {gradeLevels.map((gl) => (
-                <SelectItem key={gl} value={gl}>{gl}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {sections && sections.length > 0 && (
+          {showGrade && (
             <Select
-              value={section ?? "all"}
-              onValueChange={(v) => onSectionChange?.(v ?? "all")}
+              value={gradeChosen ? gradeLevel : undefined}
+              onValueChange={(v) => onGradeLevelChange?.(v ?? "all")}
             >
               <SelectTrigger className="h-8 flex-1 text-[11px]">
-                <SelectValue placeholder="Section" />
+                <SelectValue placeholder="Grade level" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All sections</SelectItem>
+                {gradeLevels.map((gl) => (
+                  <SelectItem key={gl} value={gl}>{gl}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {showSection && (
+            <Select
+              value={section && section !== "all" ? section : undefined}
+              onValueChange={(v) => onSectionChange?.(v ?? "all")}
+              disabled={showGrade && !gradeChosen}
+            >
+              <SelectTrigger className="h-8 flex-1 text-[11px]">
+                <SelectValue placeholder={showGrade && !gradeChosen ? "Pick grade first" : "Section"} />
+              </SelectTrigger>
+              <SelectContent>
                 {sections.map((s) => (
                   <SelectItem key={s} value={s}>{s}</SelectItem>
                 ))}

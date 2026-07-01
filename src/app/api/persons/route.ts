@@ -22,9 +22,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to fetch persons" }, { status: 502 })
   }
 
-  // Map to our format WITHOUT base64 photos (too large for list)
-  // Use index suffix to guarantee unique IDs (some schoolPersonIDs are duplicated)
-  let persons = externalPersons.map((ext, idx) => ({
+  // evesms sometimes returns the same person more than once — keep one row per
+  // schoolPersonID so the list has no duplicates.
+  const seenPersonIds = new Set<number>()
+  const uniquePersons = externalPersons.filter((p) => {
+    if (seenPersonIds.has(p.schoolPersonID)) return false
+    seenPersonIds.add(p.schoolPersonID)
+    return true
+  })
+
+  // Map to our format WITHOUT base64 photos (too large for list).
+  let persons = uniquePersons.map((ext, idx) => ({
     id: `${ext.schoolPersonID}-${idx}`,
     organization_id: String(ext.schoolID),
     first_name: ext.firstName.trim(),
@@ -76,8 +84,8 @@ export async function GET(request: NextRequest) {
   persons.sort((a, b) => a.last_name.localeCompare(b.last_name))
 
   // Collect distinct grade levels and sections for filter dropdowns
-  const gradeLevels = [...new Set(externalPersons.map((p) => p.gradeLevel).filter(Boolean))].sort()
-  const sections = [...new Set(externalPersons.map((p) => p.section).filter(Boolean))].sort()
+  const gradeLevels = [...new Set(uniquePersons.map((p) => p.gradeLevel).filter(Boolean))].sort()
+  const sections = [...new Set(uniquePersons.map((p) => p.section).filter(Boolean))].sort()
 
   return NextResponse.json({ persons, total: persons.length, gradeLevels, sections })
 }
