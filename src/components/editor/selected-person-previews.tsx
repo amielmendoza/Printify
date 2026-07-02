@@ -18,6 +18,9 @@ export function SelectedPersonPreviews() {
   const setCurrentPerson = useEditorStore((s) => s.setCurrentPerson)
   const selectedPersonIds = useAppStore((s) => s.selectedPersonIds)
   const togglePersonSelection = useAppStore((s) => s.togglePersonSelection)
+  const setPreviewGenerating = useEditorStore((s) => s.setPreviewGenerating)
+  const setPreviewProgress = useEditorStore((s) => s.setPreviewProgress)
+  const previewCancelSignal = useEditorStore((s) => s.previewCancelSignal)
   const { persons } = usePersons()
 
   const [previews, setPreviews] = useState<Record<string, string>>({})
@@ -247,6 +250,28 @@ export function SelectedPersonPreviews() {
     setCancelled(false)
     // processQueue will be triggered by the template dependency in the trigger effect below
   }, [template?.id])
+
+  // Drive the global blocking overlay while thumbnails are being generated.
+  useEffect(() => {
+    setPreviewGenerating(isGenerating)
+    setPreviewProgress(isGenerating ? { done: renderedCount, total: selectedPersons.length } : null)
+  }, [isGenerating, renderedCount, selectedPersons.length, setPreviewGenerating, setPreviewProgress])
+
+  // Cancel requested from the blocking overlay.
+  useEffect(() => {
+    if (previewCancelSignal > 0) handleCancel()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewCancelSignal])
+
+  // Abort + clear on unmount so navigating away never leaves a pending process.
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true
+      abortRef.current?.abort()
+      setPreviewGenerating(false)
+      setPreviewProgress(null)
+    }
+  }, [setPreviewGenerating, setPreviewProgress])
 
   if (selectedPersons.length === 0) return null
 

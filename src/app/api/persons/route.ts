@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { getExternalCreds } from "@/lib/auth"
 import { getExternalPersons } from "@/lib/external-api"
 
+// Expose the person's full evesms record (minus the heavy image blobs) as
+// metadata, so ANY field evesms returns is available to templates automatically
+// — no per-field hardcoding.
+function personMetadata(ext: unknown): Record<string, unknown> {
+  const m = { ...(ext as Record<string, unknown>) }
+  delete m.picture
+  delete m.signature
+  return m
+}
+
 export async function GET(request: NextRequest) {
   const creds = await getExternalCreds(request)
   if (!creds) {
@@ -46,21 +56,7 @@ export async function GET(request: NextRequest) {
     id_number: ext.lrn || ext.referenceNumber || null,
     email: null as string | null,
     phone: null as string | null,
-    metadata: {
-      schoolPersonID: ext.schoolPersonID,
-      qrCode: ext.qrCode,
-      rfid: ext.rfid,
-      gradeLevel: ext.gradeLevel,
-      section: ext.section,
-      designation: ext.designation,
-      birthDate: ext.birthDate,
-      department: ext.department,
-      schoolYearLabel: ext.schoolYearLabel,
-      emergencyContactPerson: ext.emergencyContactPerson,
-      emergencyContactNumber: ext.emergencyContactNumber,
-      emergencyRelationship: ext.emergencyRelationship,
-      fullAddress: ext.fullAddress,
-    },
+    metadata: personMetadata(ext),
     is_active: true,
     created_at: "",
     updated_at: "",

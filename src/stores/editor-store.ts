@@ -15,6 +15,12 @@ interface EditorState {
   removeBgProcessing: boolean
   currentPerson: Person | null
 
+  // Preview-thumbnail generation (triggered by selecting people). Kept separate
+  // from batch print/export (isGenerating) but both drive the blocking overlay.
+  previewGenerating: boolean
+  previewProgress: { done: number; total: number } | null
+  previewCancelSignal: number
+
   setCurrentTemplate: (template: Template | null) => void
   setBackTemplate: (template: Template | null) => void
   setPreviewSide: (side: PreviewSide) => void
@@ -26,6 +32,9 @@ interface EditorState {
   setGenerationProgress: (progress: { current: number; total: number } | null) => void
   cancelGeneration: () => void
   setRemoveBgProcessing: (processing: boolean) => void
+  setPreviewGenerating: (v: boolean) => void
+  setPreviewProgress: (p: { done: number; total: number } | null) => void
+  cancelPreview: () => void
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -39,6 +48,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   generationProgress: null,
   generationAbort: null,
   removeBgProcessing: false,
+  previewGenerating: false,
+  previewProgress: null,
+  previewCancelSignal: 0,
 
   setCurrentTemplate: (template) => set({ currentTemplate: template }),
   setBackTemplate: (template) => set({ backTemplate: template }),
@@ -62,4 +74,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ isGenerating: false, generationProgress: null, generationAbort: null })
   },
   setRemoveBgProcessing: (processing) => set({ removeBgProcessing: processing }),
+  setPreviewGenerating: (v) => set({ previewGenerating: v }),
+  setPreviewProgress: (p) => set({ previewProgress: p }),
+  cancelPreview: () => set((s) => ({ previewCancelSignal: s.previewCancelSignal + 1 })),
 }))

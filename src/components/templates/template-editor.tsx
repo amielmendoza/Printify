@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useStorageUrl } from "@/hooks/use-storage-url"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,13 +32,47 @@ interface TemplateEditorProps {
   onSaved: () => void
 }
 
-const fieldOptions = [
+// Fallback used until the live field list loads (or if it fails). The real list
+// is fetched from /api/persons/fields, so new evesms fields appear automatically.
+const DEFAULT_FIELD_OPTIONS = [
+  // Name
   { value: "full_name", label: "Full Name" },
-  { value: "id_number", label: "ID Number" },
+  { value: "fullname1", label: "Full Name (format 1)" },
+  { value: "fullname2", label: "Full Name (format 2)" },
+  { value: "first_name", label: "First Name" },
+  { value: "middle_name", label: "Middle Name" },
+  { value: "last_name", label: "Last Name" },
+  // IDs
+  { value: "id_number", label: "ID Number (LRN)" },
+  { value: "reference_number", label: "Reference Number" },
+  { value: "rfid", label: "RFID" },
+  { value: "tin", label: "TIN Number" },
+  { value: "sss", label: "SSS Number" },
+  { value: "philhealth", label: "PhilHealth Number" },
+  { value: "pagibig", label: "Pag-IBIG Number" },
+  { value: "esc_number", label: "ESC Number" },
+  // Classification
   { value: "person_type", label: "Person Type" },
+  { value: "grade_level", label: "Grade Level" },
+  { value: "program", label: "Program" },
+  { value: "section", label: "Section" },
+  { value: "grade_section", label: "Grade & Section" },
+  { value: "class_advisory", label: "Class Advisory" },
+  { value: "designation", label: "Designation" },
+  { value: "department", label: "Department" },
   { value: "category", label: "Category" },
+  { value: "cat_code1", label: "Category Code 1" },
+  { value: "cat_code2", label: "Category Code 2" },
+  { value: "cat_code3", label: "Category Code 3" },
+  // Personal
+  { value: "birth_date", label: "Birth Date" },
+  { value: "blood_type", label: "Blood Type" },
+  { value: "school_year", label: "School Year" },
+  { value: "notif_label", label: "Notification Label" },
+  // Emergency
   { value: "emergency_name", label: "Emergency Contact Name" },
   { value: "emergency_contact", label: "Emergency Contact No." },
+  { value: "emergency_relationship", label: "Emergency Relationship" },
   { value: "emergency_address", label: "Emergency Address" },
 ]
 
@@ -110,6 +144,23 @@ export function TemplateEditor({ template, onCancel, onSaved }: TemplateEditorPr
   // The preview scales to fit the available area using the image's real aspect
   // ratio, so the whole card is visible without scrolling.
   const [imgAspect, setImgAspect] = useState<number | null>(null)
+
+  // Data-field options are fetched live so they always reflect the API's fields.
+  const [fieldOptions, setFieldOptions] = useState<{ value: string; label: string }[]>(
+    DEFAULT_FIELD_OPTIONS
+  )
+  useEffect(() => {
+    let active = true
+    fetch("/api/persons/fields")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (active && Array.isArray(d?.fields) && d.fields.length) setFieldOptions(d.fields)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState>(null)
 

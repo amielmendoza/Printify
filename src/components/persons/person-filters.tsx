@@ -74,7 +74,7 @@ export function PersonFilters({
         <div className="flex gap-2">
           {showGrade && (
             <Select
-              value={gradeChosen ? gradeLevel : undefined}
+              value={gradeChosen ? gradeLevel : null}
               onValueChange={(v) => onGradeLevelChange?.(v ?? "all")}
             >
               <SelectTrigger className="h-8 flex-1 text-[11px]">
@@ -89,7 +89,7 @@ export function PersonFilters({
           )}
           {showSection && (
             <Select
-              value={section && section !== "all" ? section : undefined}
+              value={section && section !== "all" ? section : null}
               onValueChange={(v) => onSectionChange?.(v ?? "all")}
               disabled={showGrade && !gradeChosen}
             >
