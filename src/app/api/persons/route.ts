@@ -26,8 +26,9 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const search = searchParams.get("search")?.toLowerCase()
   const personType = searchParams.get("type")
+  const forceRefresh = searchParams.get("refresh") === "1"
 
-  const externalPersons = await getExternalPersons(token, schoolId)
+  const externalPersons = await getExternalPersons(token, schoolId, forceRefresh)
   if (!externalPersons) {
     return NextResponse.json({ error: "Failed to fetch persons" }, { status: 502 })
   }

@@ -5,13 +5,14 @@ import { Header } from "@/components/layout/header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Loader2, User, Building2, ShieldCheck, AlertCircle } from "lucide-react"
+import { Loader2, User, Building2, ShieldCheck, AlertCircle, Database, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import type { Organization, Profile } from "@/lib/types"
 
 export default function SettingsPage() {
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingOrg, setSavingOrg] = useState(false)
+  const [refreshingData, setRefreshingData] = useState(false)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [org, setOrg] = useState<Organization | null>(null)
   const [orgName, setOrgName] = useState("")
@@ -61,6 +62,25 @@ export default function SettingsPage() {
     if (!res.ok) toast.error("Failed to update organization")
     else toast.success("Organization updated")
     setSavingOrg(false)
+  }
+
+  async function handleRefreshData() {
+    setRefreshingData(true)
+    try {
+      const res = await fetch("/api/persons/refresh", { method: "POST" })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data.error || "Failed to refresh from evesms")
+      } else {
+        toast.success("Refreshed from evesms", {
+          description: `${data.count ?? 0} ${data.count === 1 ? "person" : "people"} synced`,
+        })
+      }
+    } catch {
+      toast.error("Failed to refresh from evesms")
+    } finally {
+      setRefreshingData(false)
+    }
   }
 
   const isMember = profile?.role === "member"
@@ -131,6 +151,34 @@ export default function SettingsPage() {
               <Button onClick={handleSaveOrg} disabled={savingOrg || isMember} size="sm" className="h-9">
                 {savingOrg && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                 Save organization
+              </Button>
+            </div>
+          </SettingsSection>
+
+          {/* Data */}
+          <SettingsSection
+            icon={Database}
+            title="Data"
+            description="People and their details are pulled live from evesms."
+          >
+            <p className="text-[12px] leading-relaxed text-muted-foreground">
+              Refresh after adding or editing people (or fields) in evesms so the app shows the
+              latest data everywhere. Otherwise data is cached and only re-pulled when you refresh.
+            </p>
+            <div className="flex justify-end pt-2">
+              <Button
+                onClick={handleRefreshData}
+                disabled={refreshingData}
+                size="sm"
+                variant="outline"
+                className="h-9 gap-1.5"
+              >
+                {refreshingData ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Refresh from evesms
               </Button>
             </div>
           </SettingsSection>

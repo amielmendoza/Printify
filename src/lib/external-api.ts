@@ -32,19 +32,20 @@ export interface ExternalPerson {
   emergencyRelationship: string
 }
 
-// In-memory cache to avoid re-fetching 1200+ persons with photos repeatedly
-const cache = new Map<string, { data: ExternalPerson[]; timestamp: number }>()
-const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+// In-memory cache of the whole roster (with photos) so we don't re-fetch it on
+// every request. There is NO timed expiry — it's refreshed only on demand
+// (force=true), i.e. when the user hits the app's Refresh button.
+const cache = new Map<string, ExternalPerson[]>()
 
 export async function getExternalPersons(
   token: string,
-  schoolId: string
+  schoolId: string,
+  force = false
 ): Promise<ExternalPerson[] | null> {
   const cacheKey = `persons-${schoolId}`
-  const cached = cache.get(cacheKey)
-
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-    return cached.data
+  if (!force) {
+    const cached = cache.get(cacheKey)
+    if (cached) return cached
   }
 
   const res = await fetch(`${EXTERNAL_API_BASE}/Person/GetAll_V2/${schoolId}`, {
@@ -57,7 +58,7 @@ export async function getExternalPersons(
   if (!res.ok) return null
 
   const data: ExternalPerson[] = await res.json()
-  cache.set(cacheKey, { data, timestamp: Date.now() })
+  cache.set(cacheKey, data)
   return data
 }
 

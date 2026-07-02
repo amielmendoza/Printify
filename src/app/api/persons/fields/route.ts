@@ -17,6 +17,48 @@ const CURATED = [
   { value: "grade_section", label: "Grade & Section" },
 ]
 
+// Known GetAll_V2 fields, always shown even when null for everyone (evesms omits
+// null fields per record, so they can't be discovered dynamically). Field values
+// are resolved case-insensitively, so exact JSON key casing doesn't matter here.
+const BASELINE = [
+  { value: "fullName1", label: "Full Name (format 1)" },
+  { value: "fullName2", label: "Full Name (format 2)" },
+  { value: "firstName", label: "First Name" },
+  { value: "middleName", label: "Middle Name" },
+  { value: "lastName", label: "Last Name" },
+  { value: "personType", label: "Person Type" },
+  { value: "qrCode", label: "QR Code" },
+  { value: "rfid", label: "RFID" },
+  { value: "referenceNumber", label: "Reference Number" },
+  { value: "gradeLevel", label: "Grade Level" },
+  { value: "program", label: "Program" },
+  { value: "section", label: "Section" },
+  { value: "designation", label: "Designation" },
+  { value: "classAdvisory", label: "Class Advisory" },
+  { value: "department", label: "Department" },
+  { value: "notifLabel", label: "Notification Label" },
+  { value: "birthDate", label: "Birth Date" },
+  { value: "bloodType", label: "Blood Type" },
+  { value: "schoolYearLabel", label: "School Year" },
+  { value: "tinNumber", label: "TIN Number" },
+  { value: "sssNumber", label: "SSS Number" },
+  { value: "philhealthNumber", label: "PhilHealth Number" },
+  { value: "pagIbigNumber", label: "Pag-IBIG Number" },
+  { value: "escNumber", label: "ESC Number" },
+  { value: "catCode1", label: "Category Code 1" },
+  { value: "catCode2", label: "Category Code 2" },
+  { value: "catCode3", label: "Category Code 3" },
+  { value: "emergencyContactPerson", label: "Emergency Contact Person" },
+  { value: "emergencyContactNumber", label: "Emergency Contact Number" },
+  { value: "emergencyRelationship", label: "Emergency Relationship" },
+  { value: "fullAddress", label: "Full Address" },
+]
+
+// Raw keys already represented by a curated/baseline entry — don't duplicate.
+const COVERED = new Set(
+  [...CURATED, ...BASELINE].map((f) => f.value.toLowerCase()).concat(["lrn", "gradelevelsection"])
+)
+
 const ACRONYMS = /\b(id|lrn|rfid|tin|sss|esc|qr|sy)\b/gi
 
 function humanize(key: string): string {
@@ -28,8 +70,8 @@ function humanize(key: string): string {
   return titled.replace(ACRONYMS, (m) => m.toUpperCase())
 }
 
-// Returns the list of person fields that can be placed on a template. Derived
-// live from an evesms record, so newly-added API fields appear automatically.
+// Returns the fields that can be placed on a template: curated + the full known
+// schema (always present) + any extra fields the API returns (auto-discovered).
 export async function GET(request: NextRequest) {
   const creds = await getExternalCreds(request)
   if (!creds) {
@@ -41,20 +83,18 @@ export async function GET(request: NextRequest) {
   }
 
   const persons = await getExternalPersons(token, schoolId)
-  const sample = persons?.[0] as Record<string, unknown> | undefined
 
-  const rawFields = sample
-    ? Object.keys(sample)
-        .filter((k) => !EXCLUDE.has(k.toLowerCase()))
-        .map((k) => ({ value: k, label: humanize(k) }))
-    : []
+  // Any extra keys the API returns that aren't already covered (future fields).
+  const extra: { value: string; label: string }[] = []
+  const seen = new Set<string>()
+  for (const p of persons ?? []) {
+    for (const k of Object.keys(p as unknown as Record<string, unknown>)) {
+      const lk = k.toLowerCase()
+      if (EXCLUDE.has(lk) || COVERED.has(lk) || seen.has(lk)) continue
+      seen.add(lk)
+      extra.push({ value: k, label: humanize(k) })
+    }
+  }
 
-  // Prepend curated fields; drop raw duplicates of what curated already covers.
-  const curatedRawKeys = new Set(["firstName", "lastName", "gradeLevelSection", "lrn"])
-  const fields = [
-    ...CURATED,
-    ...rawFields.filter((f) => !curatedRawKeys.has(f.value)),
-  ]
-
-  return NextResponse.json({ fields })
+  return NextResponse.json({ fields: [...CURATED, ...BASELINE, ...extra] })
 }

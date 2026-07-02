@@ -18,13 +18,14 @@ export function usePersons(filters?: PersonFilters) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchPersons = useCallback(async () => {
+  const fetchPersons = useCallback(async (force = false) => {
     setLoading(true)
     setError(null)
 
     const params = new URLSearchParams()
     if (filters?.search) params.set("search", filters.search)
     if (filters?.personType && filters.personType !== "all") params.set("type", filters.personType)
+    if (force) params.set("refresh", "1") // bypass the server cache (re-hit evesms)
 
     try {
       const res = await fetch(`/api/persons?${params.toString()}`)
@@ -79,5 +80,7 @@ export function usePersons(filters?: PersonFilters) {
     return [...sectionSet].sort()
   }, [allPersons, sections, filters?.gradeLevel])
 
-  return { persons, loading, error, refetch: fetchPersons, gradeLevels, sections: filteredSections }
+  const refresh = useCallback(() => fetchPersons(true), [fetchPersons])
+
+  return { persons, loading, error, refetch: fetchPersons, refresh, gradeLevels, sections: filteredSections }
 }
