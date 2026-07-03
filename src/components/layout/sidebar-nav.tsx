@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Users, CreditCard, BarChart3, Layout, Settings, Sparkles } from "lucide-react"
+import { BarChart3, Layout, Settings, Sparkles } from "lucide-react"
 
 type NavItem = {
   href: string
@@ -17,7 +17,6 @@ const sections: { title: string; items: NavItem[] }[] = [
     title: "Workspace",
     items: [
       { href: "/generator", label: "ID Generator", icon: Sparkles },
-      { href: "/persons", label: "Persons", icon: Users },
       { href: "/templates", label: "Templates", icon: Layout },
     ],
   },

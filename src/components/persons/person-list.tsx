@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { usePersons } from "@/hooks/use-persons"
 import { useAppStore } from "@/stores/app-store"
 import { useEditorStore } from "@/stores/editor-store"
@@ -27,6 +27,14 @@ export function PersonList({ showSelection = true, compact = false, requireGrade
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   const { persons, loading, gradeLevels, sections } = usePersons({ search, personType, gradeLevel, section })
+
+  // Filter state above is local, so it resets whenever this list remounts
+  // (e.g. navigating to another page and back) — but the selection lives in
+  // the global store and would survive, leaving selected IDs from a cohort
+  // that is no longer loaded. Start every mount with a clean selection.
+  useEffect(() => {
+    useAppStore.getState().clearPersonSelection()
+  }, [])
 
   const selectedPersonIds = useAppStore((s) => s.selectedPersonIds)
   const togglePersonSelection = useAppStore((s) => s.togglePersonSelection)
@@ -82,17 +90,22 @@ export function PersonList({ showSelection = true, compact = false, requireGrade
     setGradeLevel("all")
     setSection("all")
     setVisibleCount(PAGE_SIZE)
+    // Changing cohort hides the selected rows, so a stale selection would keep
+    // driving previews/print counts with no way to deselect.
+    clearPersonSelection()
   }
 
   function handleGradeLevelChange(value: string) {
     setGradeLevel(value)
     setSection("all")
     setVisibleCount(PAGE_SIZE)
+    clearPersonSelection()
   }
 
   function handleSectionChange(value: string) {
     setSection(value)
     setVisibleCount(PAGE_SIZE)
+    clearPersonSelection()
   }
 
   const remaining = persons.length - visibleCount
