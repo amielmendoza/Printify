@@ -33,9 +33,11 @@ interface Column {
 export interface SignOffReportOptions {
   orgName: string
   getPhotoUrl: (p: Person) => Promise<string | null> | string | null
-  /** When set, table columns mirror the template's text fields so the school
-   * reviews exactly the data that will be printed on the card. */
+  /** When set, table columns mirror the templates' text fields (front and
+   * back combined) so the school reviews exactly the data that will be
+   * printed on the card. */
   template?: Template | null
+  backTemplate?: Template | null
   onProgress?: (current: number, total: number) => void
   signal?: AbortSignal
 }
@@ -110,14 +112,14 @@ const NAME_FIELDS = new Set([
   "fullname2",
 ])
 
-// Build columns from the template's text placeholders: one column per mapped
-// data field, labeled like the placeholder, valued exactly as the card renders
-// it. Returns null when the template has no usable text fields.
-function templateColumns(template: Template): Column[] | null {
-  const placeholders = Array.isArray(template.placeholders)
-    ? (template.placeholders as unknown as Placeholder[])
-    : null
-  if (!placeholders) return null
+// Build columns from the templates' text placeholders (front and back
+// combined, deduped by field): one column per mapped data field, labeled like
+// the placeholder, valued exactly as the card renders it. Returns null when
+// no template has usable text fields.
+function templateColumns(templates: (Template | null | undefined)[]): Column[] | null {
+  const placeholders = templates.flatMap((t) =>
+    Array.isArray(t?.placeholders) ? (t.placeholders as unknown as Placeholder[]) : []
+  )
 
   const seen = new Set<string>()
   const fieldPlaceholders = placeholders.filter((ph) => {
@@ -206,10 +208,10 @@ export async function generateSignOffReportPdf(
   const students = persons.filter((p) => p.person_type === "student").sort(byName)
   const employees = persons.filter((p) => p.person_type !== "student").sort(byName)
 
-  // Template-driven columns show every field the selected template prints;
-  // without a template (or one with no text fields) fall back to the fixed
-  // student/employee layouts.
-  const fromTemplate = opts.template ? templateColumns(opts.template) : null
+  // Template-driven columns show every field the selected templates print
+  // (front + back); without a template (or none with text fields) fall back
+  // to the fixed student/employee layouts.
+  const fromTemplate = templateColumns([opts.template, opts.backTemplate])
   const groups = fromTemplate
     ? [{ title: "", columns: fromTemplate, persons: [...persons].sort(byName) }]
     : [

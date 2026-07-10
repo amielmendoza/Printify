@@ -181,6 +181,7 @@ export function GeneratorPageClient({ orgName = "" }: { orgName?: string }) {
         orgName,
         getPhotoUrl,
         template,
+        backTemplate,
         onProgress: (current, total) => setGenerationProgress({ current, total }),
         signal,
       })
@@ -199,7 +200,7 @@ export function GeneratorPageClient({ orgName = "" }: { orgName?: string }) {
       setIsGenerating(false)
       setGenerationProgress(null)
     }
-  }, [persons, selectedPersonIds, orgName, template, getPhotoUrl, setIsGenerating, setGenerationProgress])
+  }, [persons, selectedPersonIds, orgName, template, backTemplate, getPhotoUrl, setIsGenerating, setGenerationProgress])
 
   const handlePrintSingle = useCallback(async () => {
     if (!person || !template) return
