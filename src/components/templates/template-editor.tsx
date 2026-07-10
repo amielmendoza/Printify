@@ -151,8 +151,18 @@ export function TemplateEditor({ template, onCancel, onSaved }: TemplateEditorPr
   const [unit, setUnit] = useState<"%" | "in" | "cm">("%")
   const hasPhysicalSize = template.width_inches > 0 && template.height_inches > 0
   const unitScale = unit === "cm" ? 2.54 : 1
-  const axisInches = (axis: "x" | "y") =>
-    axis === "x" ? template.width_inches : template.height_inches
+  // Stored dims default to landscape CR-80 (3.375 x 2.125) regardless of the
+  // artwork's orientation, so orient them to the actual image — otherwise a
+  // portrait card converts X/W with the long side and Y/H with the short one
+  // (an almost-square photo box would show wildly unequal inches). The PDF
+  // export reconciles orientation the same way (cardPageSize in pdf.ts).
+  const dimsSwapped =
+    !!imgAspect &&
+    hasPhysicalSize &&
+    (imgAspect < 1) !== (template.height_inches >= template.width_inches)
+  const physicalW = dimsSwapped ? template.height_inches : template.width_inches
+  const physicalH = dimsSwapped ? template.width_inches : template.height_inches
+  const axisInches = (axis: "x" | "y") => (axis === "x" ? physicalW : physicalH)
   const pctToUnit = (pct: number, axis: "x" | "y") =>
     unit === "%" ? pct : (pct / 100) * axisInches(axis) * unitScale
   const unitToPct = (v: number, axis: "x" | "y") => {
