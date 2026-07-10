@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
+  ClipboardList,
   Download,
   FileStack,
   Printer,
@@ -24,9 +25,10 @@ interface EditorToolbarProps {
   onExportBatch: () => void
   onPrintSingle: () => void
   onPrintBatch: () => void
+  onReport: () => void
 }
 
-export function EditorToolbar({ onExportSingle, onExportBatch, onPrintSingle, onPrintBatch }: EditorToolbarProps) {
+export function EditorToolbar({ onExportSingle, onExportBatch, onPrintSingle, onPrintBatch, onReport }: EditorToolbarProps) {
   const { templates } = useTemplates()
   const currentTemplate = useEditorStore((s) => s.currentTemplate)
   const setCurrentTemplate = useEditorStore((s) => s.setCurrentTemplate)
@@ -180,6 +182,32 @@ export function EditorToolbar({ onExportSingle, onExportBatch, onPrintSingle, on
           {selectedPersonIds.length} selected
         </div>
       )}
+
+      {/* Sign-off report — needs a selection but no template */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1.5"
+              onClick={onReport}
+              disabled={selectedPersonIds.length === 0 || isGenerating}
+            >
+              <ClipboardList className="h-3.5 w-3.5" />
+              Report
+              {selectedPersonIds.length > 0 && (
+                <span className="ml-0.5 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary tabular-nums">
+                  {selectedPersonIds.length}
+                </span>
+              )}
+            </Button>
+          }
+        />
+        <TooltipContent>Download the sign-off report PDF for the selected people</TooltipContent>
+      </Tooltip>
+
+      <Separator orientation="vertical" className="mx-1 h-6" />
 
       {/* Print actions */}
       <div className="flex items-center gap-1">

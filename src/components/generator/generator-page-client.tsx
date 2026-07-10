@@ -11,11 +11,13 @@ import { PersonList } from "@/components/persons/person-list"
 import { GenerationProgress } from "./generation-progress"
 import { exportSingleCard, exportBatchCards, printSingleCard, printBatchCards } from "@/lib/export"
 import { createCanvas, renderPersonOnTemplate, exportCanvasToDataUrl } from "@/lib/canvas"
+import { generateSignOffReportPdf, signOffReportFilename } from "@/lib/report"
+import { triggerDownload } from "@/lib/pdf"
 import { toast } from "sonner"
 import type { Canvas } from "fabric"
 import type { Person, Template } from "@/lib/types"
 
-export function GeneratorPageClient() {
+export function GeneratorPageClient({ orgName = "" }: { orgName?: string }) {
   const template = useEditorStore((s) => s.currentTemplate)
   const backTemplate = useEditorStore((s) => s.backTemplate)
   const person = useEditorStore((s) => s.currentPerson)
@@ -156,6 +158,42 @@ export function GeneratorPageClient() {
     }
   }, [getOffscreenCanvas, template, backTemplate, persons, selectedPersonIds, getPhotoUrl, getTemplateImageUrl, setIsGenerating, setGenerationProgress, recordCards])
 
+  const handleReport = useCallback(async () => {
+    const selected = persons.filter((p: Person) => selectedPersonIds.includes(p.id))
+    if (selected.length === 0) {
+      toast.error("No persons selected")
+      return
+    }
+
+    setIsGenerating(true)
+    const { generationAbort } = useEditorStore.getState()
+    const signal = generationAbort?.signal
+
+    try {
+      const bytes = await generateSignOffReportPdf(selected, {
+        orgName,
+        getPhotoUrl,
+        template,
+        onProgress: (current, total) => setGenerationProgress({ current, total }),
+        signal,
+      })
+      if (!signal?.aborted) {
+        triggerDownload(bytes, signOffReportFilename(selected))
+        toast.success("Sign-off report downloaded", {
+          description: `${selected.length} ${selected.length === 1 ? "person" : "persons"}`,
+        })
+      }
+    } catch (err) {
+      if (!signal?.aborted) {
+        toast.error("Report generation failed")
+        console.error(err)
+      }
+    } finally {
+      setIsGenerating(false)
+      setGenerationProgress(null)
+    }
+  }, [persons, selectedPersonIds, orgName, template, getPhotoUrl, setIsGenerating, setGenerationProgress])
+
   const handlePrintSingle = useCallback(async () => {
     if (!person || !template) return
     try {
@@ -226,6 +264,7 @@ export function GeneratorPageClient() {
           onExportBatch={handleExportBatch}
           onPrintSingle={handlePrintSingle}
           onPrintBatch={handlePrintBatch}
+          onReport={handleReport}
         />
         <EditorWrapper />
       </div>
