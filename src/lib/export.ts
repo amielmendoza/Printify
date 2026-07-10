@@ -7,10 +7,11 @@ import { preloadBackgroundRemoval } from "./background-removal"
 export async function exportSingleCard(
   canvas: Canvas,
   personName: string,
-  backDataUrl?: string
+  backDataUrl?: string,
+  cardSize?: Pick<PdfExportOptions, "cardWidthInches" | "cardHeightInches">
 ) {
   const dataUrl = exportCanvasToDataUrl(canvas, "png", 1.0, 2)
-  const pdfBytes = await generateSingleCardPdf(dataUrl, backDataUrl)
+  const pdfBytes = await generateSingleCardPdf(dataUrl, backDataUrl, cardSize)
   triggerDownload(pdfBytes, `${personName}-id-card.pdf`)
 }
 

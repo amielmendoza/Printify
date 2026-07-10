@@ -1,8 +1,7 @@
 import { PDFDocument, PDFPage } from "pdf-lib"
 
 // CR-80 card reference (1 inch = 72 points)
-const CR80_WIDTH_PT = 3.375 * 72  // 243 points
-const CR80_HEIGHT_PT = 2.125 * 72 // 153 points
+const CR80_WIDTH_PT = 3.375 * 72  // 243 points (longer CR-80 dimension)
 
 export interface PdfExportOptions {
   pageSize: "card" | "letter" | "a4"
@@ -11,6 +10,10 @@ export interface PdfExportOptions {
   margin: number
   spacing: number
   includeCutMarks: boolean
+  /** Actual card size (from the template). When set, "card" pages use exactly
+   * these dimensions — matching the print path's @page size. */
+  cardWidthInches?: number
+  cardHeightInches?: number
 }
 
 const defaultOptions: PdfExportOptions = {
@@ -57,6 +60,25 @@ function cardDimensionsFromImage(imgWidth: number, imgHeight: number) {
   }
 }
 
+/**
+ * Card page size in points: the template's actual inches when provided
+ * (oriented to match the rendered image so the image is never stretched),
+ * otherwise derived from the image aspect at CR-80 size.
+ */
+function cardPageSize(
+  img: { width: number; height: number },
+  opts: { cardWidthInches?: number; cardHeightInches?: number }
+) {
+  if (opts.cardWidthInches && opts.cardHeightInches) {
+    let cardW = opts.cardWidthInches * 72
+    let cardH = opts.cardHeightInches * 72
+    const imgPortrait = img.height >= img.width
+    if (imgPortrait !== cardH >= cardW) [cardW, cardH] = [cardH, cardW]
+    return { cardW, cardH }
+  }
+  return cardDimensionsFromImage(img.width, img.height)
+}
+
 function drawCutMarks(page: PDFPage, x: number, y: number, cardW: number, cardH: number) {
   const markLen = 9
   const lx = x
@@ -76,20 +98,23 @@ function drawCutMarks(page: PDFPage, x: number, y: number, cardW: number, cardH:
 
 export async function generateSingleCardPdf(
   canvasDataUrl: string,
-  backDataUrl?: string
+  backDataUrl?: string,
+  options: Pick<PdfExportOptions, "cardWidthInches" | "cardHeightInches"> = {}
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   const image = await embedImage(doc, canvasDataUrl)
 
-  // Always use exact CR-80 page size (3.375" x 2.125") for PVC card printing
-  const page = doc.addPage([CR80_WIDTH_PT, CR80_HEIGHT_PT])
-  page.drawImage(image, { x: 0, y: 0, width: CR80_WIDTH_PT, height: CR80_HEIGHT_PT })
+  // Page matches the card's real size and orientation (same as the print
+  // path's @page), so the image fills it without stretching.
+  const { cardW, cardH } = cardPageSize(image, options)
+  const page = doc.addPage([cardW, cardH])
+  page.drawImage(image, { x: 0, y: 0, width: cardW, height: cardH })
 
   // Duplex: add back side as second page
   if (backDataUrl) {
     const backImage = await embedImage(doc, backDataUrl)
-    const backPage = doc.addPage([CR80_WIDTH_PT, CR80_HEIGHT_PT])
-    backPage.drawImage(backImage, { x: 0, y: 0, width: CR80_WIDTH_PT, height: CR80_HEIGHT_PT })
+    const backPage = doc.addPage([cardW, cardH])
+    backPage.drawImage(backImage, { x: 0, y: 0, width: cardW, height: cardH })
   }
 
   return doc.save()
@@ -113,23 +138,24 @@ export async function generateBatchPdf(
   const doc = await PDFDocument.create()
   const duplex = backDataUrls && backDataUrls.length > 0
 
-  // Embed first image to determine card dimensions from actual aspect ratio
+  // Embed first image to determine card dimensions — the template's actual
+  // size when provided, else derived from the image's aspect ratio.
   const firstImage = await embedImage(doc, canvasDataUrls[0])
-  const { cardW, cardH } = cardDimensionsFromImage(firstImage.width, firstImage.height)
+  const { cardW, cardH } = cardPageSize(firstImage, opts)
 
   if (opts.pageSize === "card") {
-    // One card per page at exact CR-80 size — for duplex: front, back, front, back …
+    // One card per page at actual card size — for duplex: front, back, front, back …
     for (let i = 0; i < canvasDataUrls.length; i++) {
       // Front page
       const frontImage = i === 0 ? firstImage : await embedImage(doc, canvasDataUrls[i])
-      const fp = doc.addPage([CR80_WIDTH_PT, CR80_HEIGHT_PT])
-      fp.drawImage(frontImage, { x: 0, y: 0, width: CR80_WIDTH_PT, height: CR80_HEIGHT_PT })
+      const fp = doc.addPage([cardW, cardH])
+      fp.drawImage(frontImage, { x: 0, y: 0, width: cardW, height: cardH })
 
       // Back page (if duplex)
       if (duplex && backDataUrls[i]) {
         const backImage = await embedImage(doc, backDataUrls[i])
-        const bp = doc.addPage([CR80_WIDTH_PT, CR80_HEIGHT_PT])
-        bp.drawImage(backImage, { x: 0, y: 0, width: CR80_WIDTH_PT, height: CR80_HEIGHT_PT })
+        const bp = doc.addPage([cardW, cardH])
+        bp.drawImage(backImage, { x: 0, y: 0, width: cardW, height: cardH })
       }
     }
   } else {

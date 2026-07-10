@@ -101,7 +101,10 @@ export function GeneratorPageClient({ orgName = "" }: { orgName?: string }) {
       }
       const frontImgUrl = await getTemplateImageUrl(template)
       await renderPersonOnTemplate(canvas, template, person, frontImgUrl, photoUrl, { removeBg: true })
-      await exportSingleCard(canvas, `${person.first_name}-${person.last_name}`, backDataUrl)
+      await exportSingleCard(canvas, `${person.first_name}-${person.last_name}`, backDataUrl, {
+        cardWidthInches: template.width_inches,
+        cardHeightInches: template.height_inches,
+      })
       await recordCards([person], template, "exported")
       toast.success("ID card exported", { description: `${person.first_name} ${person.last_name}` })
     } catch (err) {
@@ -125,9 +128,13 @@ export function GeneratorPageClient({ orgName = "" }: { orgName?: string }) {
     const signal = generationAbort?.signal
 
     const isDuplex = !!backTemplate
-    const pdfOptions = isDuplex
-      ? { pageSize: "card" as const }
-      : { pageSize: "letter" as const, cardsPerRow: 2, cardsPerColumn: 4, margin: 36, spacing: 18, includeCutMarks: false }
+    // One card per page at the template's real size — the PDF matches the
+    // print path's output exactly (no grid scaling, no stretching).
+    const pdfOptions = {
+      pageSize: "card" as const,
+      cardWidthInches: template.width_inches,
+      cardHeightInches: template.height_inches,
+    }
 
     try {
       await exportBatchCards(
@@ -144,7 +151,7 @@ export function GeneratorPageClient({ orgName = "" }: { orgName?: string }) {
       if (!signal?.aborted) {
         await recordCards(selected, template, "exported")
         toast.success(`Exported ${selected.length} ID card${selected.length === 1 ? "" : "s"}`, {
-          description: isDuplex ? "Duplex layout · 1 card per page" : "2 × 4 grid · letter size",
+          description: isDuplex ? "Duplex · 1 card per page · actual size" : "1 card per page · actual size",
         })
       }
     } catch (err) {
