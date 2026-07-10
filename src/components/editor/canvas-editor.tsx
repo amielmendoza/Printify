@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useEditorStore } from "@/stores/editor-store"
 import { useAppStore } from "@/stores/app-store"
 import { getStorageUrl } from "@/lib/storage-client"
-import { createCanvas, renderPersonOverlays, clearOverlays, exportCanvasToDataUrl, loadTemplateBackground } from "@/lib/canvas"
+import { createCanvas, renderPersonOverlays, clearOverlays, exportCanvasToDataUrl, loadTemplateBackground, templateNeedsBgRemoval } from "@/lib/canvas"
 import { removeImageBackground } from "@/lib/background-removal"
 import { PersonPreviewCard } from "./person-preview-card"
 import { SelectedPersonPreviews } from "./selected-person-previews"
@@ -96,8 +96,9 @@ export function CanvasEditor() {
       if (signal.aborted) return
 
       // Progressive: the card appears immediately with the original photo, then
-      // the background-removed version swaps in when ready.
-      setRemoveBgProcessing(true)
+      // the background-removed version swaps in when ready. No spinner when the
+      // template keeps photo backgrounds (nothing to process).
+      setRemoveBgProcessing(templateNeedsBgRemoval(template))
       const { settled } = await renderPersonOverlays(canvas, template, person, photoUrl, {
         removeBg: true,
         progressive: true,

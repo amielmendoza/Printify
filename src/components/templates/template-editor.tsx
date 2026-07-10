@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Plus,
@@ -144,6 +145,21 @@ export function TemplateEditor({ template, onCancel, onSaved }: TemplateEditorPr
   // The preview scales to fit the available area using the image's real aspect
   // ratio, so the whole card is visible without scrolling.
   const [imgAspect, setImgAspect] = useState<number | null>(null)
+
+  // Position & size display unit. Values are always STORED as % of the card;
+  // in/cm just convert for display using the template's physical dimensions.
+  const [unit, setUnit] = useState<"%" | "in" | "cm">("%")
+  const hasPhysicalSize = template.width_inches > 0 && template.height_inches > 0
+  const unitScale = unit === "cm" ? 2.54 : 1
+  const axisInches = (axis: "x" | "y") =>
+    axis === "x" ? template.width_inches : template.height_inches
+  const pctToUnit = (pct: number, axis: "x" | "y") =>
+    unit === "%" ? pct : (pct / 100) * axisInches(axis) * unitScale
+  const unitToPct = (v: number, axis: "x" | "y") => {
+    const pct = unit === "%" ? v : (v / unitScale / axisInches(axis)) * 100
+    return Math.min(100, Math.max(0, pct))
+  }
+  const unitMax = (axis: "x" | "y") => (unit === "%" ? 100 : axisInches(axis) * unitScale)
 
   // Data-field options are fetched live so they always reflect the API's fields.
   const [fieldOptions, setFieldOptions] = useState<{ value: string; label: string }[]>(
@@ -328,6 +344,8 @@ export function TemplateEditor({ template, onCancel, onSaved }: TemplateEditorPr
                         cursor: "grab",
                         touchAction: "none",
                         ["--tw-ring-color" as string]: meta.tone.raw,
+                        // Visualize the circle mask for photo placeholders
+                        borderRadius: ph.type === "photo" && ph.photoShape === "circle" ? "50%" : undefined,
                       }}
                       onClick={(e) => { e.stopPropagation(); setSelected(i) }}
                       onPointerDown={(e) => handlePointerDown(e, i, "move")}
@@ -498,14 +516,59 @@ export function TemplateEditor({ template, onCancel, onSaved }: TemplateEditorPr
                             )}
 
                             <div>
-                              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                Position &amp; size
-                              </p>
+                              <div className="mb-1.5 flex items-center justify-between">
+                                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                  Position &amp; size
+                                </p>
+                                {hasPhysicalSize && (
+                                  <div className="flex overflow-hidden rounded-md border">
+                                    {(["%", "in", "cm"] as const).map((u) => (
+                                      <button
+                                        key={u}
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setUnit(u) }}
+                                        className={cn(
+                                          "px-2 py-0.5 text-[10px] font-medium transition-colors",
+                                          unit === u
+                                            ? "bg-primary text-primary-foreground"
+                                            : "bg-card text-muted-foreground hover:text-foreground"
+                                        )}
+                                      >
+                                        {u}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                               <div className="grid grid-cols-4 gap-2">
-                                <NumberField label="X%" value={ph.x} onChange={(v) => updatePlaceholder(i, { x: v })} />
-                                <NumberField label="Y%" value={ph.y} onChange={(v) => updatePlaceholder(i, { y: v })} />
-                                <NumberField label="W%" value={ph.width} onChange={(v) => updatePlaceholder(i, { width: v })} />
-                                <NumberField label="H%" value={ph.height} onChange={(v) => updatePlaceholder(i, { height: v })} />
+                                <NumberField
+                                  label={`X (${unit})`}
+                                  value={pctToUnit(ph.x, "x")}
+                                  max={unitMax("x")}
+                                  step={unit === "%" ? 1 : 0.01}
+                                  onChange={(v) => updatePlaceholder(i, { x: unitToPct(v, "x") })}
+                                />
+                                <NumberField
+                                  label={`Y (${unit})`}
+                                  value={pctToUnit(ph.y, "y")}
+                                  max={unitMax("y")}
+                                  step={unit === "%" ? 1 : 0.01}
+                                  onChange={(v) => updatePlaceholder(i, { y: unitToPct(v, "y") })}
+                                />
+                                <NumberField
+                                  label={`W (${unit})`}
+                                  value={pctToUnit(ph.width, "x")}
+                                  max={unitMax("x")}
+                                  step={unit === "%" ? 1 : 0.01}
+                                  onChange={(v) => updatePlaceholder(i, { width: unitToPct(v, "x") })}
+                                />
+                                <NumberField
+                                  label={`H (${unit})`}
+                                  value={pctToUnit(ph.height, "y")}
+                                  max={unitMax("y")}
+                                  step={unit === "%" ? 1 : 0.01}
+                                  onChange={(v) => updatePlaceholder(i, { height: unitToPct(v, "y") })}
+                                />
                               </div>
                               <div className="mt-2 flex flex-wrap gap-1.5">
                                 <Button
@@ -625,6 +688,47 @@ export function TemplateEditor({ template, onCancel, onSaved }: TemplateEditorPr
                                 </Field>
                               </div>
                             )}
+
+                            {ph.type === "photo" && (
+                              <div>
+                                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                  Photo options
+                                </p>
+                                <Field label="Shape" hint="Circle/Square crop the photo to fill the shape">
+                                  <Select
+                                    value={ph.photoShape ?? "rect"}
+                                    onValueChange={(v) => {
+                                      if (v) updatePlaceholder(i, { photoShape: v as Placeholder["photoShape"] })
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-8 text-[12px]">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="rect">Rectangle (fit whole photo)</SelectItem>
+                                      <SelectItem value="square">Square</SelectItem>
+                                      <SelectItem value="circle">Circle</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </Field>
+                                <label className="mt-3 flex cursor-pointer items-start gap-2">
+                                  <Checkbox
+                                    checked={!!ph.keepBackground}
+                                    onCheckedChange={(checked) =>
+                                      updatePlaceholder(i, { keepBackground: !!checked })
+                                    }
+                                  />
+                                  <span>
+                                    <span className="block text-[12px] font-medium leading-tight">
+                                      Keep photo background
+                                    </span>
+                                    <span className="block text-[11px] text-muted-foreground">
+                                      Skip background removal — use when photos already have a clean background.
+                                    </span>
+                                  </span>
+                                </label>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -675,15 +779,26 @@ function Field({
   )
 }
 
+const fmtNum = (v: number) => String(Math.round(v * 100) / 100)
+
 function NumberField({
   label,
   value,
   onChange,
+  max = 100,
+  step = 1,
 }: {
   label: string
   value: number
   onChange: (v: number) => void
+  max?: number
+  step?: number
 }) {
+  // While focused, the local text drives the input so decimals can be typed
+  // freely ("0.9"); when blurred, the prop drives it so drag/center updates
+  // show through.
+  const [text, setText] = useState("")
+  const [focused, setFocused] = useState(false)
   return (
     <div className="space-y-1">
       <Label className="text-[10px] font-medium tracking-wide text-muted-foreground">{label}</Label>
@@ -691,9 +806,19 @@ function NumberField({
         className="h-8 text-[12px] tabular-nums"
         type="number"
         min={0}
-        max={100}
-        value={value}
-        onChange={(e) => onChange(+e.target.value)}
+        max={max}
+        step={step}
+        value={focused ? text : fmtNum(value)}
+        onFocus={() => {
+          setFocused(true)
+          setText(fmtNum(value))
+        }}
+        onBlur={() => setFocused(false)}
+        onChange={(e) => {
+          setText(e.target.value)
+          const n = parseFloat(e.target.value)
+          if (Number.isFinite(n)) onChange(n)
+        }}
       />
     </div>
   )

@@ -35,6 +35,11 @@ export interface Placeholder {
   height: number
   style?: PlaceholderStyle
   field?: string
+  /** Photo placeholders only: mask shape for the photo (default "rect"). */
+  photoShape?: "rect" | "square" | "circle"
+  /** Photo placeholders only: skip background removal — the photo's own
+   * background (e.g. studio white) is part of the design. */
+  keepBackground?: boolean
 }
 
 export interface Organization {

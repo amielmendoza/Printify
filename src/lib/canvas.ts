@@ -1,4 +1,4 @@
-import { Canvas, FabricImage, FabricText, Rect } from "fabric"
+import { Canvas, Circle, FabricImage, FabricText, Rect } from "fabric"
 import QRCode from "qrcode"
 import type { Template, Person, Placeholder } from "@/lib/types"
 import { removeImageBackground } from "@/lib/background-removal"
@@ -51,19 +51,47 @@ export async function loadTemplateBackground(
   canvas.renderAll()
 }
 
-// Fits a photo inside the placeholder rectangle (contain: whole photo shown, no
-// crop) and clips it to that box. Called on first placement and again after a
-// progressive swap in case the replacement image has different dimensions.
+// Fits a photo into the placeholder and clips it to the placeholder's shape.
+// - rect (default): contain — whole photo shown, clipped to the box.
+// - circle/square: cover — the photo fills a centered square mask (side =
+//   min(w, h)), cropped by a Circle or Rect clipPath. Used for designs where
+//   the photo (with its own background) must appear as a circle or square.
+// Called on first placement and again after a progressive swap in case the
+// replacement image has different dimensions.
 function fitPhotoToPlaceholder(
   img: FabricImage,
   px: number,
   py: number,
   pw: number,
-  ph: number
+  ph: number,
+  shape: "rect" | "square" | "circle" = "rect"
 ): void {
-  const scale = Math.min(pw / (img.width ?? 1), ph / (img.height ?? 1))
-  const scaledW = (img.width ?? 1) * scale
-  const scaledH = (img.height ?? 1) * scale
+  const iw = img.width ?? 1
+  const ih = img.height ?? 1
+
+  if (shape === "circle" || shape === "square") {
+    const side = Math.min(pw, ph)
+    const cx = px + pw / 2
+    const cy = py + ph / 2
+    const scale = Math.max(side / iw, side / ih)
+    img.set({
+      left: cx - (iw * scale) / 2,
+      top: cy - (ih * scale) / 2,
+      scaleX: scale,
+      scaleY: scale,
+      selectable: false,
+      evented: false,
+    })
+    img.clipPath =
+      shape === "circle"
+        ? new Circle({ left: cx - side / 2, top: cy - side / 2, radius: side / 2, absolutePositioned: true })
+        : new Rect({ left: cx - side / 2, top: cy - side / 2, width: side, height: side, absolutePositioned: true })
+    return
+  }
+
+  const scale = Math.min(pw / iw, ph / ih)
+  const scaledW = iw * scale
+  const scaledH = ih * scale
   img.set({
     left: px - (scaledW - pw) / 2,
     top: py - (scaledH - ph) / 2,
@@ -94,6 +122,7 @@ export async function addPersonPhoto(
   const py = (placeholder.y / 100) * canvasH
   const pw = (placeholder.width / 100) * canvasW
   const ph = (placeholder.height / 100) * canvasH
+  const shape = placeholder.photoShape ?? "rect"
 
   // Export path: resolve the final (background-removed) image before placing.
   if (removeBg && !progressive) {
@@ -106,7 +135,7 @@ export async function addPersonPhoto(
     if (signal?.aborted) return null
     const img = await FabricImage.fromURL(finalUrl, { crossOrigin: "anonymous" })
     if (signal?.aborted) return null
-    fitPhotoToPlaceholder(img, px, py, pw, ph)
+    fitPhotoToPlaceholder(img, px, py, pw, ph, shape)
     canvas.add(img)
     canvas.renderAll()
     return { image: img, settled: Promise.resolve() }
@@ -115,7 +144,7 @@ export async function addPersonPhoto(
   // Preview path: place the original immediately.
   const img = await FabricImage.fromURL(photoUrl, { crossOrigin: "anonymous" })
   if (signal?.aborted) return null
-  fitPhotoToPlaceholder(img, px, py, pw, ph)
+  fitPhotoToPlaceholder(img, px, py, pw, ph, shape)
   canvas.add(img)
   canvas.renderAll()
 
@@ -127,7 +156,7 @@ export async function addPersonPhoto(
         if (signal?.aborted || !canvas.getObjects().includes(img)) return
         await img.setSrc(removedUrl, { crossOrigin: "anonymous" })
         if (signal?.aborted || !canvas.getObjects().includes(img)) return
-        fitPhotoToPlaceholder(img, px, py, pw, ph) // re-fit in case dims changed
+        fitPhotoToPlaceholder(img, px, py, pw, ph, shape) // re-fit in case dims changed
         canvas.requestRenderAll()
       })
       .catch(() => {
@@ -349,6 +378,16 @@ export function clearOverlays(canvas: Canvas): void {
   canvas.remove(...canvas.getObjects())
 }
 
+// True when rendering this template would actually call background removal —
+// i.e. it has at least one photo placeholder that doesn't keep its background.
+// Lets export/print paths skip preloading the remove-bg API entirely.
+export function templateNeedsBgRemoval(template: Template | null | undefined): boolean {
+  if (!template) return false
+  const placeholders = template.placeholders as unknown as Placeholder[]
+  if (!Array.isArray(placeholders)) return false
+  return placeholders.some((ph) => ph?.type === "photo" && !ph.keepBackground)
+}
+
 // Renders just the person's overlays onto an already-loaded template background.
 // Assumes the background + canvas dimensions are already set.
 export async function renderPersonOverlays(
@@ -369,7 +408,9 @@ export async function renderPersonOverlays(
 
     if (ph.type === "photo" && photoUrl) {
       const res = await addPersonPhoto(canvas, photoUrl, ph, {
-        removeBg: options?.removeBg,
+        // A placeholder marked keepBackground overrides the global flag: the
+        // photo's own background is part of the design (e.g. white circle).
+        removeBg: options?.removeBg && !ph.keepBackground,
         progressive: options?.progressive,
         signal: options?.signal,
       })

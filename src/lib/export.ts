@@ -1,6 +1,6 @@
 import type { Canvas } from "fabric"
 import type { Template, Person } from "@/lib/types"
-import { renderPersonOnTemplate, exportCanvasToDataUrl } from "./canvas"
+import { renderPersonOnTemplate, exportCanvasToDataUrl, templateNeedsBgRemoval } from "./canvas"
 import { generateSingleCardPdf, generateBatchPdf, triggerDownload, type PdfExportOptions } from "./pdf"
 import { preloadBackgroundRemoval } from "./background-removal"
 
@@ -85,8 +85,9 @@ export async function printBatchCards(
   options?: { removeBg?: boolean; signal?: AbortSignal },
   backTemplate?: Template | null
 ): Promise<void> {
-  // Pre-process all backgrounds in parallel before rendering
-  if (options?.removeBg) {
+  // Pre-process all backgrounds in parallel before rendering — skipped when
+  // every photo placeholder keeps its background (no remove-bg calls needed).
+  if (options?.removeBg && (templateNeedsBgRemoval(template) || templateNeedsBgRemoval(backTemplate))) {
     const resolved = await Promise.all(persons.map((p) => getPhotoUrl(p)))
     const photoUrls = resolved.filter((u): u is string => !!u)
     await preloadBackgroundRemoval(photoUrls, (done, total) => {
@@ -137,8 +138,9 @@ export async function exportBatchCards(
   renderOptions?: { removeBg?: boolean; signal?: AbortSignal },
   backTemplate?: Template | null
 ): Promise<void> {
-  // Pre-process all backgrounds in parallel before rendering
-  if (renderOptions?.removeBg) {
+  // Pre-process all backgrounds in parallel before rendering — skipped when
+  // every photo placeholder keeps its background (no remove-bg calls needed).
+  if (renderOptions?.removeBg && (templateNeedsBgRemoval(template) || templateNeedsBgRemoval(backTemplate))) {
     const resolved = await Promise.all(persons.map((p) => getPhotoUrl(p)))
     const photoUrls = resolved.filter((u): u is string => !!u)
     await preloadBackgroundRemoval(photoUrls, (done, total) => {
